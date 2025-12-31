@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: profile-warmup-frontend
+    name: profile_warmup
     runtime: static
     buildCommand: cd frontend && npm install && npm run build
     staticPublishPath: frontend/dist
