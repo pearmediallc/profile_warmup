@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 
-const API_URL = 'http://localhost:8000'
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 // Initial profiles
 const initialProfiles = [
@@ -35,7 +35,8 @@ function App() {
   }, [logs])
 
   const connectWebSocket = () => {
-    wsRef.current = new WebSocket('ws://localhost:8000/ws')
+    const wsUrl = API_URL.replace('http', 'ws') + '/ws'
+    wsRef.current = new WebSocket(wsUrl)
 
     wsRef.current.onmessage = (event) => {
       const data = JSON.parse(event.data)
