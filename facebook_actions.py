@@ -655,6 +655,87 @@ class FacebookActions:
 
         self._log_action("FRIEND_SUGGESTIONS_DONE", f"Sent {requests_sent} requests")
 
+    async def logout(self) -> bool:
+        """
+        Logout from Facebook
+        - Clicks account menu
+        - Clicks logout option
+        """
+        try:
+            self._log_action("LOGOUT", "Starting logout process...")
+
+            # Click on account menu (profile picture in top right)
+            account_menu_selectors = [
+                '[aria-label="Your profile"]',
+                '[aria-label="Account"]',
+                '[aria-label="Account controls and settings"]',
+                'div[aria-label*="Account"]',
+                'image[data-visualcompletion="media-vc-image"]',  # Profile pic
+            ]
+
+            menu_clicked = False
+            for selector in account_menu_selectors:
+                try:
+                    menu = await self.page.query_selector(selector)
+                    if menu and await menu.is_visible():
+                        await human_click(self.page, menu)
+                        menu_clicked = True
+                        self._log_action("LOGOUT", "Clicked account menu")
+                        await asyncio.sleep(random.uniform(1, 2))
+                        break
+                except Exception:
+                    continue
+
+            if not menu_clicked:
+                # Try clicking the rightmost icon in nav bar
+                try:
+                    await self.page.click('div[role="navigation"] >> nth=-1 >> div[role="button"]')
+                    menu_clicked = True
+                    await asyncio.sleep(random.uniform(1, 2))
+                except Exception:
+                    pass
+
+            if not menu_clicked:
+                self._log_action("LOGOUT_FAIL", "Could not find account menu")
+                return False
+
+            # Find and click logout
+            logout_selectors = [
+                '[role="menuitem"]:has-text("Log Out")',
+                '[role="menuitem"]:has-text("Log out")',
+                'span:has-text("Log Out")',
+                'span:has-text("Log out")',
+                '[aria-label*="Log out"]',
+                '[aria-label*="Log Out"]',
+            ]
+
+            for selector in logout_selectors:
+                try:
+                    logout_btn = await self.page.query_selector(selector)
+                    if logout_btn and await logout_btn.is_visible():
+                        await human_click(self.page, logout_btn)
+                        self._log_action("LOGOUT", "Clicked logout button")
+                        await asyncio.sleep(random.uniform(2, 4))
+                        return True
+                except Exception:
+                    continue
+
+            # If direct selectors didn't work, try text content search
+            try:
+                await self.page.click('text="Log Out"')
+                self._log_action("LOGOUT", "Logged out via text click")
+                return True
+            except Exception:
+                pass
+
+            self._log_action("LOGOUT_FAIL", "Could not find logout button")
+            return False
+
+        except Exception as e:
+            logger.error(f"Error during logout: {e}")
+            self._log_action("LOGOUT_ERROR", str(e))
+            return False
+
     def get_stats(self) -> dict:
         """Get action statistics"""
         return {

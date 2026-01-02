@@ -47,6 +47,11 @@ WARM_UP_CONFIG = {
     'max_likes_per_session': 8,
     'max_friend_requests_per_session': 3,
     'min_time_between_actions': 30,  # seconds - minimum between significant actions
+
+    # Logout timing (random delay after warmup before logout)
+    'min_logout_delay_minutes': 3,   # minimum wait before logout
+    'max_logout_delay_minutes': 7,   # maximum wait before logout
+    'perform_logout': True,          # whether to actually logout or just close browser
 }
 
 # Video watching settings

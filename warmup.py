@@ -213,7 +213,7 @@ class ProfileWarmUp:
             except Exception:
                 pass
 
-        # Session complete
+        # Session complete - now wait random time before logout
         actual_duration = time.time() - self.session_start_time
         stats = self._get_session_stats(actual_duration)
 
@@ -225,7 +225,44 @@ class ProfileWarmUp:
         logger.info(f"Total scroll: {stats['total_scrolled_pixels']}px")
         logger.info("=" * 50)
 
+        # Random delay before logout
+        await self._random_logout_delay()
+
         return stats
+
+    async def _random_logout_delay(self) -> None:
+        """Wait random time then logout"""
+        min_delay = WARM_UP_CONFIG.get('min_logout_delay_minutes', 3)
+        max_delay = WARM_UP_CONFIG.get('max_logout_delay_minutes', 7)
+
+        # Calculate random delay in seconds
+        delay_minutes = random.uniform(min_delay, max_delay)
+        delay_seconds = delay_minutes * 60
+
+        logger.info(f"Waiting {delay_minutes:.1f} minutes before logout...")
+        print(f"\n⏳ Waiting {delay_minutes:.1f} minutes before logout...")
+
+        # Wait with periodic scrolling to simulate continued browsing
+        start_time = time.time()
+        while time.time() - start_time < delay_seconds:
+            remaining = delay_seconds - (time.time() - start_time)
+            print(f"    ⏱️  Logout in {remaining/60:.1f} min...")
+
+            # Do some light scrolling while waiting
+            await self.scroller.scroll_down()
+            await asyncio.sleep(random.uniform(10, 20))
+
+        # Perform logout if enabled
+        if WARM_UP_CONFIG.get('perform_logout', True):
+            logger.info("Performing logout...")
+            print("\n🚪 Logging out...")
+            logout_success = await self.fb_actions.logout()
+            if logout_success:
+                print("    ✅ Logged out successfully!")
+            else:
+                print("    ⚠️  Logout may have failed, closing browser anyway")
+        else:
+            print("\n🔚 Skipping logout (disabled in config)")
 
     async def _main_loop_for_duration(self, seconds: float) -> None:
         """Run main loop for a specific duration"""
