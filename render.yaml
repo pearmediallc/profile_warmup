@@ -1,9 +1,54 @@
+# Render Blueprint for Profile Warmup
+# Deploy with: render blueprint apply
+
 services:
+  # Frontend - Static Site
   - type: web
-    name: profile_warmup
+    name: profile-warmup-frontend
     runtime: static
     buildCommand: cd frontend && npm install && npm run build
     staticPublishPath: frontend/dist
     envVars:
       - key: VITE_API_URL
-        sync: false
+        value: https://profile-warmup-api.onrender.com
+
+  # Backend API - Web Service
+  - type: web
+    name: profile-warmup-api
+    runtime: python
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: REDIS_URL
+        fromService:
+          name: profile-warmup-redis
+          type: redis
+          property: connectionString
+      - key: FRONTEND_URL
+        value: https://profile-warmup-frontend.onrender.com
+      - key: PYTHONUNBUFFERED
+        value: "1"
+    healthCheckPath: /health
+    autoDeploy: true
+
+  # Celery Worker - Background Worker
+  - type: worker
+    name: profile-warmup-worker
+    runtime: python
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && celery -A app.celery_app worker --loglevel=info --concurrency=1
+    envVars:
+      - key: REDIS_URL
+        fromService:
+          name: profile-warmup-redis
+          type: redis
+          property: connectionString
+      - key: PYTHONUNBUFFERED
+        value: "1"
+    autoDeploy: true
+
+  # Redis - For Celery
+  - type: redis
+    name: profile-warmup-redis
+    plan: free
+    maxmemoryPolicy: allkeys-lru

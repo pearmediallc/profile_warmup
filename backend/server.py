@@ -92,14 +92,10 @@ async def start_warmup(profile: Profile):
         try:
             async with async_playwright() as p:
                 # Launch browser with STEALTH settings
-                browser = await p.chromium.launch(
+                # Using Firefox as it works better on macOS
+                browser = await p.firefox.launch(
                     headless=False,
-                    args=[
-                        '--start-maximized',
-                        '--disable-blink-features=AutomationControlled',
-                        '--disable-infobars',
-                        '--no-sandbox',
-                    ]
+                    args=['--start-maximized']
                 )
 
                 await broadcast_message({
@@ -112,15 +108,10 @@ async def start_warmup(profile: Profile):
                 # Create context with realistic settings
                 context = await browser.new_context(
                     viewport={'width': 1920, 'height': 1080},
-                    user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:120.0) Gecko/20100101 Firefox/120.0',
                     locale='en-US',
                     timezone_id='America/New_York',
                 )
-
-                # Remove webdriver detection
-                await context.add_init_script("""
-                    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-                """)
 
                 page = await context.new_page()
 
