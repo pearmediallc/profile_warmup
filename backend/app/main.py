@@ -18,7 +18,7 @@ from pydantic import BaseModel
 import redis
 
 from app.celery_app import celery_app
-from app.tasks import warmup_profile_task, SCREENSHOTS_DIR, screenshot_to_base64
+from app.tasks import warmup_profile_task, SCREENSHOTS_DIR, screenshot_to_base64, CLOUDINARY_CONFIGURED
 from app.browser import browser_pool
 
 # Setup logging
@@ -174,6 +174,7 @@ async def health_check():
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
         "redis": REDIS_AVAILABLE,
+        "cloudinary": CLOUDINARY_CONFIGURED,
         "active_browsers": len(browser_pool.active_browsers),
         "active_tasks": len(active_tasks)
     }

@@ -14,6 +14,8 @@ from typing import Dict, Any, Optional
 from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
 import redis
+import cloudinary
+import cloudinary.uploader
 
 from app.celery_app import celery_app
 from app.browser import browser_session, browser_pool, human_delay, human_type, scroll_page
@@ -23,6 +25,18 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 logger = logging.getLogger(__name__)
+
+# Configure Cloudinary
+CLOUDINARY_CONFIGURED = False
+if os.getenv("CLOUDINARY_CLOUD_NAME"):
+    cloudinary.config(
+        cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
+        api_key=os.getenv("CLOUDINARY_API_KEY"),
+        api_secret=os.getenv("CLOUDINARY_API_SECRET"),
+        secure=True
+    )
+    CLOUDINARY_CONFIGURED = True
+    logger.info("Cloudinary configured")
 
 # Redis for status broadcasting
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
@@ -55,10 +69,10 @@ SCREENSHOTS_DIR = os.getenv("SCREENSHOTS_DIR", "/tmp/warmup_screenshots")
 os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
 
 
-def take_screenshot(driver, name: str, email: str) -> Optional[str]:
+def take_screenshot(driver, name: str, email: str) -> Optional[Dict[str, str]]:
     """
-    Take a screenshot and save it
-    Returns the file path or None on failure
+    Take a screenshot, save locally and upload to Cloudinary
+    Returns dict with local path and cloudinary URL, or None on failure
     """
     try:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -68,7 +82,30 @@ def take_screenshot(driver, name: str, email: str) -> Optional[str]:
 
         driver.save_screenshot(filepath)
         logger.info(f"Screenshot saved: {filepath}")
-        return filepath
+
+        result = {
+            "local_path": filepath,
+            "filename": filename,
+            "url": None
+        }
+
+        # Upload to Cloudinary if configured
+        if CLOUDINARY_CONFIGURED:
+            try:
+                public_id = f"warmup_screenshots/{safe_email}/{name}_{timestamp}"
+                upload_result = cloudinary.uploader.upload(
+                    filepath,
+                    public_id=public_id,
+                    folder="warmup_screenshots",
+                    overwrite=True,
+                    resource_type="image"
+                )
+                result["url"] = upload_result.get("secure_url")
+                logger.info(f"Screenshot uploaded to Cloudinary: {result['url']}")
+            except Exception as e:
+                logger.error(f"Cloudinary upload failed: {e}")
+
+        return result
     except Exception as e:
         logger.error(f"Failed to take screenshot: {e}")
         return None
@@ -275,7 +312,7 @@ def login_to_facebook(driver, email: str, password: str) -> Dict[str, Any]:
         # Screenshot: Login page loaded
         screenshot = take_screenshot(driver, "01_login_page", email)
         if screenshot:
-            result["screenshots"].append({"stage": "login_page", "path": screenshot})
+            result["screenshots"].append({"stage": "login_page", **screenshot})
 
         # Find and fill email
         logger.info(f"[{email}] Entering email...")
@@ -294,7 +331,7 @@ def login_to_facebook(driver, email: str, password: str) -> Dict[str, Any]:
         # Screenshot: Before clicking login
         screenshot = take_screenshot(driver, "02_before_login_click", email)
         if screenshot:
-            result["screenshots"].append({"stage": "before_login", "path": screenshot})
+            result["screenshots"].append({"stage": "before_login", **screenshot})
 
         # Click login
         logger.info(f"[{email}] Clicking login button...")
@@ -305,7 +342,7 @@ def login_to_facebook(driver, email: str, password: str) -> Dict[str, Any]:
         # Screenshot: After login attempt
         screenshot = take_screenshot(driver, "03_after_login", email)
         if screenshot:
-            result["screenshots"].append({"stage": "after_login", "path": screenshot})
+            result["screenshots"].append({"stage": "after_login", **screenshot})
 
         result["current_url"] = driver.current_url
         result["page_title"] = driver.title
@@ -318,7 +355,7 @@ def login_to_facebook(driver, email: str, password: str) -> Dict[str, Any]:
             logger.error(f"[{email}] LOGIN FAILED: Security checkpoint detected")
             screenshot = take_screenshot(driver, "ERROR_checkpoint", email)
             if screenshot:
-                result["screenshots"].append({"stage": "checkpoint_error", "path": screenshot})
+                result["screenshots"].append({"stage": "checkpoint_error", **screenshot})
             result["error"] = "Security checkpoint - Facebook wants verification"
             return result
 
@@ -327,7 +364,7 @@ def login_to_facebook(driver, email: str, password: str) -> Dict[str, Any]:
             logger.error(f"[{email}] LOGIN FAILED: Two-factor authentication required")
             screenshot = take_screenshot(driver, "ERROR_2fa", email)
             if screenshot:
-                result["screenshots"].append({"stage": "2fa_error", "path": screenshot})
+                result["screenshots"].append({"stage": "2fa_error", **screenshot})
             result["error"] = "Two-factor authentication required"
             return result
 
@@ -336,7 +373,7 @@ def login_to_facebook(driver, email: str, password: str) -> Dict[str, Any]:
             logger.error(f"[{email}] LOGIN FAILED: Still on login page (wrong credentials?)")
             screenshot = take_screenshot(driver, "ERROR_login_failed", email)
             if screenshot:
-                result["screenshots"].append({"stage": "login_failed", "path": screenshot})
+                result["screenshots"].append({"stage": "login_failed", **screenshot})
             result["error"] = "Login failed - check credentials"
             return result
 
@@ -346,7 +383,7 @@ def login_to_facebook(driver, email: str, password: str) -> Dict[str, Any]:
             logger.error(f"[{email}] LOGIN FAILED: Account disabled")
             screenshot = take_screenshot(driver, "ERROR_account_disabled", email)
             if screenshot:
-                result["screenshots"].append({"stage": "account_disabled", "path": screenshot})
+                result["screenshots"].append({"stage": "account_disabled", **screenshot})
             result["error"] = "Account has been disabled by Facebook"
             return result
 
@@ -354,7 +391,7 @@ def login_to_facebook(driver, email: str, password: str) -> Dict[str, Any]:
         logger.info(f"[{email}] LOGIN SUCCESSFUL! URL: {driver.current_url}")
         screenshot = take_screenshot(driver, "04_login_success", email)
         if screenshot:
-            result["screenshots"].append({"stage": "login_success", "path": screenshot})
+            result["screenshots"].append({"stage": "login_success", **screenshot})
 
         result["success"] = True
         return result
@@ -363,7 +400,7 @@ def login_to_facebook(driver, email: str, password: str) -> Dict[str, Any]:
         logger.error(f"[{email}] LOGIN TIMEOUT: Could not find login elements")
         screenshot = take_screenshot(driver, "ERROR_timeout", email)
         if screenshot:
-            result["screenshots"].append({"stage": "timeout_error", "path": screenshot})
+            result["screenshots"].append({"stage": "timeout_error", **screenshot})
         result["error"] = f"Timeout: {str(e)}"
         result["current_url"] = driver.current_url if driver else None
         return result
@@ -373,7 +410,7 @@ def login_to_facebook(driver, email: str, password: str) -> Dict[str, Any]:
         try:
             screenshot = take_screenshot(driver, "ERROR_exception", email)
             if screenshot:
-                result["screenshots"].append({"stage": "exception_error", "path": screenshot})
+                result["screenshots"].append({"stage": "exception_error", **screenshot})
             result["current_url"] = driver.current_url
         except:
             pass

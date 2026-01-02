@@ -16,3 +16,6 @@ redis==5.0.1
 # Utilities
 python-dotenv==1.0.0
 httpx==0.25.2
+
+# Cloud Storage for Screenshots
+cloudinary==1.36.0
