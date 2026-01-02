@@ -1,8 +1,9 @@
 # Render Blueprint for Profile Warmup
 # Deploy with: render blueprint apply
+# Note: Docker services require a paid plan on Render
 
 services:
-  # Frontend - Static Site
+  # Frontend - Static Site (Free tier)
   - type: web
     name: profile-warmup-frontend
     runtime: static
@@ -12,12 +13,12 @@ services:
       - key: VITE_API_URL
         value: https://profile-warmup-api.onrender.com
 
-  # Backend API - Web Service
+  # Backend API - Docker Web Service (requires paid plan for Chrome)
   - type: web
     name: profile-warmup-api
-    runtime: python
-    buildCommand: pip install -r backend/requirements.txt
-    startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
     envVars:
       - key: REDIS_URL
         fromService:
@@ -28,15 +29,23 @@ services:
         value: https://profile-warmup-frontend.onrender.com
       - key: PYTHONUNBUFFERED
         value: "1"
+      # Cloudinary - Add your credentials
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
     healthCheckPath: /health
     autoDeploy: true
 
-  # Celery Worker - Background Worker
+  # Celery Worker - Docker Background Worker (requires paid plan for Chrome)
   - type: worker
     name: profile-warmup-worker
-    runtime: python
-    buildCommand: pip install -r backend/requirements.txt
-    startCommand: cd backend && celery -A app.celery_app worker --loglevel=info --concurrency=1
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    startCommand: celery -A app.celery_app worker --loglevel=info --concurrency=1
     envVars:
       - key: REDIS_URL
         fromService:
@@ -45,9 +54,16 @@ services:
           property: connectionString
       - key: PYTHONUNBUFFERED
         value: "1"
+      # Cloudinary - Add your credentials
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
     autoDeploy: true
 
-  # Redis - For Celery
+  # Redis - For Celery (Free tier)
   - type: redis
     name: profile-warmup-redis
     plan: free

@@ -120,10 +120,7 @@ def screenshot_to_base64(filepath: str) -> Optional[str]:
         logger.error(f"Failed to encode screenshot: {e}")
         return None
 
-# Import config
-import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+# Import config (from backend/config.py)
 from config import WARM_UP_CONFIG
 
 
