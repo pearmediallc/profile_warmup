@@ -25,11 +25,11 @@ WARM_UP_CONFIG = {
     'max_comments_per_session': 5,  # safety limit
 
     # Friend requests
-    'min_friend_requests': 0,
-    'max_friend_requests': 3,
-    'min_time_between_requests': 60,  # seconds
-    'max_time_between_requests': 120,  # seconds
-    'friend_suggestions_probability': 0.7,  # 70% chance to visit suggestions
+    'min_friend_requests': 1,         # minimum friend requests per session
+    'max_friend_requests': 3,         # maximum friend requests per session
+    'min_time_between_requests': 60,  # seconds between requests
+    'max_time_between_requests': 120, # seconds between requests
+    'friend_suggestions_probability': 0.8,  # 80% chance to visit friend suggestions
 
     # Scrolling behavior
     'scroll_min_pixels': 300,
@@ -62,12 +62,11 @@ VIDEO_CONFIG = {
 }
 
 # Action weights for random selection
-# SAFE MODE: Only scrolling and pauses (no clicking to avoid random click issues)
+# Higher weight = more likely to be chosen
 ACTION_WEIGHTS = {
-    'scroll_down': 60,      # 60% - main action
-    'scroll_up': 15,        # 15% - occasional scroll back
-    'pause_reading': 25,    # 25% - reading pauses (just waiting, no clicks)
-    # DISABLED FOR NOW - uncomment when click targeting is fixed:
-    # 'like_post': 0,       # 0% - disabled
-    # 'watch_video': 0,     # 0% - disabled
+    'scroll_down': 50,      # 50% - main action (scrolling feed)
+    'scroll_up': 10,        # 10% - occasional scroll back up
+    'pause_reading': 25,    # 25% - reading pauses (simulates reading posts)
+    'like_post': 15,        # 15% - like posts while scrolling
+    # 'watch_video': 0,     # disabled - can enable if needed
 }
