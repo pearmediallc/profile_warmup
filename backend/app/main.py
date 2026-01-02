@@ -4,16 +4,21 @@ FastAPI Backend for Profile Warm-Up - Production Ready
 
 import os
 import logging
+import glob
+import json
+import asyncio
 from typing import List, Optional, Dict, Any
 from datetime import datetime
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import redis
 
 from app.celery_app import celery_app
-from app.tasks import warmup_profile_task
+from app.tasks import warmup_profile_task, SCREENSHOTS_DIR, screenshot_to_base64
 from app.browser import browser_pool
 
 # Setup logging
@@ -35,11 +40,79 @@ except Exception as e:
     REDIS_AVAILABLE = False
     redis_client = None
 
+# Redis pub/sub for status broadcasting
+pubsub_client = None
+if REDIS_AVAILABLE:
+    try:
+        pubsub_client = redis.from_url(REDIS_URL)
+    except Exception:
+        pass
+
+
+# Background task for Redis pub/sub subscriber
+async def redis_subscriber():
+    """Subscribe to Redis channel and broadcast to WebSocket clients"""
+    if not pubsub_client:
+        logger.warning("Redis pub/sub not available")
+        return
+
+    pubsub = pubsub_client.pubsub()
+    pubsub.subscribe("warmup_status")
+    logger.info("Started Redis pub/sub subscriber")
+
+    while True:
+        try:
+            message = pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+            if message and message["type"] == "message":
+                data = json.loads(message["data"])
+                logger.debug(f"Broadcasting status: {data.get('status')}")
+
+                # Broadcast to all connected WebSocket clients
+                for connection in active_connections[:]:  # Use slice copy to avoid modification during iteration
+                    try:
+                        await connection.send_json(data)
+                    except Exception:
+                        # Remove dead connections
+                        try:
+                            active_connections.remove(connection)
+                        except ValueError:
+                            pass
+
+            await asyncio.sleep(0.1)  # Small delay to prevent busy loop
+
+        except Exception as e:
+            logger.error(f"Redis subscriber error: {e}")
+            await asyncio.sleep(5)  # Wait before retry
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup and shutdown events"""
+    # Start Redis subscriber in background
+    subscriber_task = None
+    if REDIS_AVAILABLE:
+        subscriber_task = asyncio.create_task(redis_subscriber())
+        logger.info("Redis subscriber started")
+
+    yield
+
+    # Cleanup on shutdown
+    if subscriber_task:
+        subscriber_task.cancel()
+        try:
+            await subscriber_task
+        except asyncio.CancelledError:
+            pass
+    browser_pool.cleanup_all()
+    logger.info("Shutdown complete")
+
+
 # FastAPI app
 app = FastAPI(
     title="Profile Warm-Up API",
     description="Production-ready Facebook profile warming service",
-    version="2.0.0"
+    version="2.0.0",
+    lifespan=lifespan
 )
 
 # CORS
@@ -301,6 +374,110 @@ async def list_tasks():
         "active_tasks": active_tasks,
         "active_browsers": len(browser_pool.active_browsers),
         "websocket_connections": len(active_connections)
+    }
+
+
+@app.get("/screenshots/{email}")
+async def list_screenshots(email: str):
+    """
+    List all screenshots for a profile
+    Returns list of screenshot info with timestamps
+    """
+    safe_email = email.split('@')[0].replace('.', '_')
+    pattern = os.path.join(SCREENSHOTS_DIR, f"{safe_email}_*.png")
+    files = glob.glob(pattern)
+
+    screenshots = []
+    for filepath in sorted(files, key=os.path.getmtime, reverse=True):
+        filename = os.path.basename(filepath)
+        stat = os.stat(filepath)
+        screenshots.append({
+            "filename": filename,
+            "path": filepath,
+            "size_bytes": stat.st_size,
+            "created_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+            "stage": filename.split('_')[1] if '_' in filename else "unknown"
+        })
+
+    return {
+        "email": email,
+        "screenshot_count": len(screenshots),
+        "screenshots": screenshots
+    }
+
+
+@app.get("/screenshots/{email}/{filename}")
+async def get_screenshot(email: str, filename: str, format: str = "file"):
+    """
+    Get a specific screenshot
+    format=file: Return as file download
+    format=base64: Return as base64 encoded string
+    """
+    safe_email = email.split('@')[0].replace('.', '_')
+
+    # Security: Ensure filename belongs to this email
+    if not filename.startswith(safe_email):
+        raise HTTPException(status_code=403, detail="Access denied to this screenshot")
+
+    filepath = os.path.join(SCREENSHOTS_DIR, filename)
+
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="Screenshot not found")
+
+    if format == "base64":
+        base64_data = screenshot_to_base64(filepath)
+        if base64_data:
+            return {
+                "filename": filename,
+                "format": "base64",
+                "data": base64_data
+            }
+        raise HTTPException(status_code=500, detail="Failed to encode screenshot")
+
+    return FileResponse(filepath, media_type="image/png", filename=filename)
+
+
+@app.get("/screenshots/{email}/latest")
+async def get_latest_screenshot(email: str):
+    """Get the most recent screenshot for a profile"""
+    safe_email = email.split('@')[0].replace('.', '_')
+    pattern = os.path.join(SCREENSHOTS_DIR, f"{safe_email}_*.png")
+    files = glob.glob(pattern)
+
+    if not files:
+        raise HTTPException(status_code=404, detail="No screenshots found for this profile")
+
+    # Get most recent file
+    latest = max(files, key=os.path.getmtime)
+    filename = os.path.basename(latest)
+    base64_data = screenshot_to_base64(latest)
+
+    return {
+        "filename": filename,
+        "stage": filename.split('_')[1] if '_' in filename else "unknown",
+        "format": "base64",
+        "data": base64_data
+    }
+
+
+@app.delete("/screenshots/{email}")
+async def delete_screenshots(email: str):
+    """Delete all screenshots for a profile"""
+    safe_email = email.split('@')[0].replace('.', '_')
+    pattern = os.path.join(SCREENSHOTS_DIR, f"{safe_email}_*.png")
+    files = glob.glob(pattern)
+
+    deleted = 0
+    for filepath in files:
+        try:
+            os.remove(filepath)
+            deleted += 1
+        except Exception as e:
+            logger.error(f"Failed to delete {filepath}: {e}")
+
+    return {
+        "email": email,
+        "deleted_count": deleted
     }
 
 
