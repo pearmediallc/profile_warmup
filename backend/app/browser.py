@@ -21,8 +21,8 @@ from selenium.common.exceptions import TimeoutException, WebDriverException
 
 logger = logging.getLogger(__name__)
 
-# Configuration
-MAX_CONCURRENT_BROWSERS = 2
+# Configuration - FOR 2GB RAM
+MAX_CONCURRENT_BROWSERS = 2  # Can run 2 browsers with 2GB RAM
 WARMUP_TIMEOUT = 600  # 10 minutes max per warmup
 PAGE_LOAD_TIMEOUT = 30
 
@@ -71,7 +71,7 @@ browser_pool = BrowserPool()
 
 def get_chrome_options(headless: bool = True) -> uc.ChromeOptions:
     """
-    Get Chrome options optimized for stability and stealth
+    Get Chrome options optimized for 2GB RAM and stealth
     """
     options = uc.ChromeOptions()
 
@@ -82,11 +82,15 @@ def get_chrome_options(headless: bool = True) -> uc.ChromeOptions:
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
 
-    # === MEMORY MANAGEMENT ===
+    # === MEMORY OPTIMIZATION ===
     options.add_argument("--disable-extensions")
     options.add_argument("--disable-plugins")
-    options.add_argument("--memory-pressure-off")
-    options.add_argument("--max_old_space_size=512")
+    options.add_argument("--disable-translate")
+    options.add_argument("--disable-sync")
+    options.add_argument("--disable-background-networking")
+    options.add_argument("--disable-default-apps")
+    options.add_argument("--no-first-run")
+    options.add_argument("--no-default-browser-check")
 
     # === STABILITY ===
     options.add_argument("--disable-background-timer-throttling")
