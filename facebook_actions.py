@@ -559,19 +559,69 @@ class FacebookActions:
     async def find_add_friend_buttons(self) -> List:
         """Find 'Add Friend' buttons on friend suggestions page"""
         try:
-            selectors = [
-                '[aria-label="Add friend"]',
-                '[aria-label="Add Friend"]',
-                'div[aria-label*="Add"][role="button"]',
-            ]
+            # Based on actual Facebook HTML structure:
+            # The "Add friend" text is inside: <span>Add friend</span>
+            # We need to find the clickable parent element
 
             buttons = []
-            for selector in selectors:
-                found = await self.page.query_selector_all(selector)
-                for btn in found:
-                    if await btn.is_visible():
-                        buttons.append(btn)
 
+            # Method 1: Find spans with exact text "Add friend"
+            try:
+                spans = await self.page.query_selector_all('span:has-text("Add friend")')
+                for span in spans:
+                    if await span.is_visible():
+                        # Get the clickable parent (go up to find the button container)
+                        parent = await span.evaluate_handle('''el => {
+                            // Go up to find a clickable div (usually 2-3 levels up)
+                            let current = el;
+                            for (let i = 0; i < 5; i++) {
+                                current = current.parentElement;
+                                if (!current) break;
+                                // Check if this is a clickable element
+                                if (current.getAttribute('role') === 'button' ||
+                                    current.tagName === 'BUTTON' ||
+                                    current.classList.contains('x1i10hfl') ||
+                                    current.style.cursor === 'pointer') {
+                                    return current;
+                                }
+                            }
+                            // Return grandparent as fallback (usually the button container)
+                            return el.parentElement?.parentElement?.parentElement || el.parentElement;
+                        }''')
+                        if parent:
+                            buttons.append(parent)
+            except Exception as e:
+                logger.debug(f"Method 1 failed: {e}")
+
+            # Method 2: Try aria-label selectors (backup)
+            if not buttons:
+                aria_selectors = [
+                    '[aria-label="Add friend"]',
+                    '[aria-label="Add Friend"]',
+                    'div[aria-label*="Add"][role="button"]',
+                ]
+                for selector in aria_selectors:
+                    try:
+                        found = await self.page.query_selector_all(selector)
+                        for btn in found:
+                            if await btn.is_visible():
+                                buttons.append(btn)
+                    except Exception:
+                        continue
+
+            # Method 3: Use Playwright's text locator
+            if not buttons:
+                try:
+                    locator = self.page.get_by_text("Add friend", exact=True)
+                    count = await locator.count()
+                    for i in range(min(count, 10)):
+                        el = locator.nth(i)
+                        if await el.is_visible():
+                            buttons.append(el)
+                except Exception as e:
+                    logger.debug(f"Method 3 failed: {e}")
+
+            logger.info(f"Found {len(buttons)} Add Friend buttons")
             return buttons[:10]
 
         except Exception as e:
@@ -590,6 +640,7 @@ class FacebookActions:
         try:
             # Scroll to load suggestions
             await self.scroller.scroll_down()
+            await asyncio.sleep(random.uniform(1, 2))
 
             # Find add friend buttons
             buttons = await self.find_add_friend_buttons()
@@ -600,8 +651,20 @@ class FacebookActions:
             # Pick a random one
             button = random.choice(buttons)
 
-            # Human-like click
-            await human_click(self.page, button)
+            # Human-like click - handle both element and locator types
+            try:
+                # If it's a locator (from get_by_text), use click directly
+                if hasattr(button, 'click'):
+                    await button.click(delay=random.randint(50, 150))
+                else:
+                    await human_click(self.page, button)
+            except Exception as click_err:
+                logger.debug(f"Click method 1 failed: {click_err}, trying alternative")
+                # Fallback: try clicking via JavaScript
+                try:
+                    await button.evaluate('el => el.click()')
+                except Exception:
+                    await human_click(self.page, button)
 
             self.friend_requests_count += 1
             self.last_friend_request_time = time.time()
