@@ -44,8 +44,9 @@ WORKDIR /app
 # Copy requirements first (for caching)
 COPY requirements.txt .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Force rebuild of pip install (change CACHE_BUST value to invalidate)
+ARG CACHE_BUST=2
+RUN echo "Cache bust: $CACHE_BUST" && pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY . .
