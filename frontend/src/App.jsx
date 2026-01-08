@@ -3,6 +3,9 @@ import { motion, AnimatePresence } from 'framer-motion'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
+// Debug: Log the API URL being used (helpful for deployment troubleshooting)
+console.log('API URL:', API_URL)
+
 // Initial profiles
 const initialProfiles = [
   { email: 'kritikaverma290902@gmail.com', password: 'kritika@2909', status: 'idle' },
@@ -16,8 +19,33 @@ function App() {
   const [isRunning, setIsRunning] = useState(false)
   const [newEmail, setNewEmail] = useState('')
   const [newPassword, setNewPassword] = useState('')
+  const [backendStatus, setBackendStatus] = useState('checking') // 'checking', 'connected', 'disconnected'
   const wsRef = useRef(null)
   const logsEndRef = useRef(null)
+
+  // Check backend health on mount
+  useEffect(() => {
+    const checkBackend = async () => {
+      try {
+        const response = await fetch(`${API_URL}/health`, {
+          method: 'GET',
+          signal: AbortSignal.timeout(10000) // 10s timeout
+        })
+        if (response.ok) {
+          setBackendStatus('connected')
+        } else {
+          setBackendStatus('disconnected')
+        }
+      } catch (error) {
+        console.error('Backend health check failed:', error)
+        setBackendStatus('disconnected')
+      }
+    }
+    checkBackend()
+    // Re-check every 30 seconds
+    const interval = setInterval(checkBackend, 30000)
+    return () => clearInterval(interval)
+  }, [])
 
   // Connect to WebSocket
   useEffect(() => {
@@ -111,9 +139,18 @@ function App() {
           p.email === profile.email ? { ...p, status: 'starting' } : p
         ))
         setIsRunning(true)
+      } else {
+        const errorData = await response.json().catch(() => ({}))
+        addLog(`Failed to start: ${errorData.detail || response.statusText}`, 'error', profile.email)
       }
     } catch (error) {
-      addLog(`Failed to start: ${error.message}`, 'error', profile.email)
+      // More descriptive error messages for common issues
+      let errorMsg = error.message
+      if (error.message === 'Failed to fetch') {
+        errorMsg = 'Cannot connect to backend. Check if backend service is running on Render.'
+      }
+      addLog(`Failed to start: ${errorMsg}`, 'error', profile.email)
+      console.error('Warmup error:', error, 'API URL:', API_URL)
     }
   }
 
@@ -172,6 +209,25 @@ function App() {
       >
         <h1>Profile Warm-Up</h1>
         <p>Automated Facebook profile warming with human-like behavior</p>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.5rem',
+          marginTop: '0.5rem',
+          fontSize: '0.85rem'
+        }}>
+          <span style={{
+            width: '8px',
+            height: '8px',
+            borderRadius: '50%',
+            backgroundColor: backendStatus === 'connected' ? '#22c55e' :
+                            backendStatus === 'checking' ? '#eab308' : '#ef4444'
+          }} />
+          <span style={{ color: 'rgba(255,255,255,0.6)' }}>
+            Backend: {backendStatus === 'connected' ? 'Connected' :
+                     backendStatus === 'checking' ? 'Checking...' : 'Disconnected'}
+          </span>
+        </div>
       </motion.header>
 
       <div className="container">

@@ -115,14 +115,24 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS
+# CORS - Build origins list dynamically
+cors_origins = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+]
+
+# Add frontend URL from environment (with correct default)
+frontend_url = os.getenv("FRONTEND_URL", "https://profile-warmup-frontend.onrender.com")
+if frontend_url:
+    cors_origins.append(frontend_url)
+
+# Also allow any onrender.com subdomain for flexibility
+cors_origins.append("https://*.onrender.com")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:5173",
-        os.getenv("FRONTEND_URL", "https://profile-warmup.onrender.com")
-    ],
+    allow_origins=cors_origins,
+    allow_origin_regex=r"https://.*\.onrender\.com",  # Regex for all Render subdomains
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

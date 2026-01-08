@@ -11,7 +11,7 @@ services:
     staticPublishPath: frontend/dist
     envVars:
       - key: VITE_API_URL
-        value: https://profile-warmup-api.onrender.com
+        value: https://profile-warmup.onrender.com
 
   # Backend API - Docker Web Service (requires paid plan for Chrome)
   - type: web
