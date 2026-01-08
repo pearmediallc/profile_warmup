@@ -45,7 +45,7 @@ WORKDIR /app
 COPY requirements.txt .
 
 # Force rebuild of pip install (change CACHE_BUST value to invalidate)
-ARG CACHE_BUST=2
+ARG CACHE_BUST=3
 RUN echo "Cache bust: $CACHE_BUST" && pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
