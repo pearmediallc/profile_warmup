@@ -126,10 +126,13 @@ def get_chrome_options(headless: bool = True) -> Options:
     options.add_argument("--disable-setuid-sandbox")
     options.add_argument("--disable-software-rasterizer")
     options.add_argument("--disable-features=VizDisplayCompositor")
-    options.add_argument("--remote-debugging-port=9222")
-    options.add_argument("--single-process")  # Required for some Docker environments
+    # Note: --single-process causes crashes in containers, removed
+    # Note: --remote-debugging-port removed to avoid port conflicts
     options.add_argument("--disable-features=NetworkService")
     options.add_argument("--disable-features=NetworkServiceInProcess")
+
+    # === ADDITIONAL CONTAINER STABILITY ===
+    options.add_argument("--disable-shared-memory-usage")  # Alternate to disable-dev-shm-usage
 
     # Set Chrome binary path (platform-aware)
     chrome_path = get_chrome_binary()
@@ -229,7 +232,30 @@ def create_driver(headless: bool = True):
         from selenium.webdriver.chrome.service import Service as ChromeService
 
         logger.info("Attempting webdriver-manager...")
-        service = ChromeService(ChromeDriverManager().install())
+        driver_path = ChromeDriverManager().install()
+
+        # Fix: webdriver-manager sometimes returns wrong path (e.g., THIRD_PARTY_NOTICES)
+        # Ensure we get the actual chromedriver binary
+        if driver_path and not driver_path.endswith('chromedriver'):
+            import os
+            driver_dir = os.path.dirname(driver_path)
+            # Look for the actual chromedriver binary
+            for name in ['chromedriver', 'chromedriver.exe']:
+                potential_path = os.path.join(driver_dir, name)
+                if os.path.exists(potential_path) and os.access(potential_path, os.X_OK):
+                    driver_path = potential_path
+                    break
+            else:
+                # Check parent directory
+                parent_dir = os.path.dirname(driver_dir)
+                for name in ['chromedriver', 'chromedriver.exe']:
+                    potential_path = os.path.join(parent_dir, name)
+                    if os.path.exists(potential_path) and os.access(potential_path, os.X_OK):
+                        driver_path = potential_path
+                        break
+
+        logger.info(f"Using chromedriver at: {driver_path}")
+        service = ChromeService(executable_path=driver_path)
         driver = webdriver.Chrome(service=service, options=options)
 
         logger.info("Browser created with webdriver-manager")
