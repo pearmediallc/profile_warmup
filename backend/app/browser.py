@@ -1,5 +1,6 @@
 """
-Chrome Browser Manager with undetected-chromedriver
+Chrome Browser Manager
+- Supports both undetected-chromedriver (local) and regular Selenium (Docker)
 - Max concurrent browsers limit
 - Timeout protection
 - Auto cleanup on crash
@@ -15,7 +16,9 @@ import os
 from typing import Optional
 from contextlib import contextmanager
 
-import undetected_chromedriver as uc
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -27,6 +30,9 @@ logger = logging.getLogger(__name__)
 MAX_CONCURRENT_BROWSERS = 2  # Can run 2 browsers with 2GB RAM
 WARMUP_TIMEOUT = 600  # 10 minutes max per warmup
 PAGE_LOAD_TIMEOUT = 60  # Increased for slow networks
+
+# Detect if running in Docker/container
+IS_DOCKER = os.path.exists('/.dockerenv') or os.environ.get('RENDER', False)
 
 
 def get_chrome_binary():
@@ -92,11 +98,12 @@ class BrowserPool:
 browser_pool = BrowserPool()
 
 
-def get_chrome_options(headless: bool = True) -> uc.ChromeOptions:
+def get_chrome_options(headless: bool = True) -> Options:
     """
-    Get Chrome options optimized for 2GB RAM and stealth
+    Get Chrome options optimized for 2GB RAM
+    Works in both local and Docker environments
     """
-    options = uc.ChromeOptions()
+    options = Options()
 
     # === CRITICAL FOR SERVER/DOCKER ===
     if headless:
@@ -106,9 +113,8 @@ def get_chrome_options(headless: bool = True) -> uc.ChromeOptions:
     options.add_argument("--disable-gpu")
 
     # === DOCKER/RENDER SPECIFIC ===
-    options.add_argument("--remote-debugging-port=0")  # Use random port
     options.add_argument("--disable-setuid-sandbox")
-    # Note: --single-process removed as it causes crashes on many systems
+    options.add_argument("--disable-software-rasterizer")
 
     # Set Chrome binary path (platform-aware)
     chrome_path = get_chrome_binary()
@@ -145,7 +151,41 @@ def get_chrome_options(headless: bool = True) -> uc.ChromeOptions:
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_argument("--disable-infobars")
 
+    # User agent to look more human
+    options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+
     return options
+
+
+def create_driver(headless: bool = True):
+    """
+    Create a Chrome WebDriver
+    Uses regular Selenium (works better in Docker than undetected-chromedriver)
+    """
+    options = get_chrome_options(headless)
+
+    try:
+        # Use webdriver-manager to auto-download chromedriver
+        from webdriver_manager.chrome import ChromeDriverManager
+        from selenium.webdriver.chrome.service import Service as ChromeService
+
+        service = ChromeService(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=options)
+
+        logger.info("Browser created with webdriver-manager")
+        return driver
+
+    except Exception as e:
+        logger.warning(f"webdriver-manager failed: {e}, trying direct Chrome")
+
+        # Fallback: try direct Chrome without specifying chromedriver path
+        try:
+            driver = webdriver.Chrome(options=options)
+            logger.info("Browser created with system chromedriver")
+            return driver
+        except Exception as e2:
+            logger.error(f"Direct Chrome also failed: {e2}")
+            raise
 
 
 class BrowserManager:
@@ -155,20 +195,14 @@ class BrowserManager:
     """
 
     def __init__(self, headless: bool = True):
-        self.driver: Optional[uc.Chrome] = None
+        self.driver = None
         self.headless = headless
         self.start_time: Optional[float] = None
 
-    def create_browser(self) -> uc.Chrome:
-        """Create a new undetected Chrome browser"""
-        options = get_chrome_options(self.headless)
-
+    def create_browser(self):
+        """Create a new Chrome browser"""
         try:
-            self.driver = uc.Chrome(
-                options=options,
-                use_subprocess=True,
-                version_main=None  # Auto-detect Chrome version
-            )
+            self.driver = create_driver(self.headless)
             self.driver.set_page_load_timeout(PAGE_LOAD_TIMEOUT)
             self.driver.implicitly_wait(10)
             self.start_time = time.time()
@@ -237,8 +271,6 @@ def run_with_timeout(func, timeout: int = WARMUP_TIMEOUT):
     Run a function with timeout
     Raises TimeoutError if exceeded
     """
-    import threading
-
     result = [None]
     error = [None]
 
