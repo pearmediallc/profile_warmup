@@ -125,6 +125,11 @@ def get_chrome_options(headless: bool = True) -> Options:
     # === DOCKER/RENDER SPECIFIC ===
     options.add_argument("--disable-setuid-sandbox")
     options.add_argument("--disable-software-rasterizer")
+    options.add_argument("--disable-features=VizDisplayCompositor")
+    options.add_argument("--remote-debugging-port=9222")
+    options.add_argument("--single-process")  # Required for some Docker environments
+    options.add_argument("--disable-features=NetworkService")
+    options.add_argument("--disable-features=NetworkServiceInProcess")
 
     # Set Chrome binary path (platform-aware)
     chrome_path = get_chrome_binary()
@@ -202,15 +207,28 @@ def create_driver(headless: bool = True):
         except Exception as e:
             logger.warning(f"undetected-chromedriver failed: {e}, falling back to regular Selenium")
 
-    # Strategy 2: Regular Selenium with webdriver-manager (for Docker or fallback)
+    # Strategy 2: Use system chromedriver directly (for Docker)
     options = get_chrome_options(headless)
 
+    # Check for system chromedriver first (installed in Docker)
+    system_chromedriver = "/usr/local/bin/chromedriver"
+    if os.path.exists(system_chromedriver):
+        try:
+            logger.info(f"Attempting system chromedriver at {system_chromedriver}...")
+            from selenium.webdriver.chrome.service import Service as ChromeService
+            service = ChromeService(executable_path=system_chromedriver)
+            driver = webdriver.Chrome(service=service, options=options)
+            logger.info("Browser created with system chromedriver")
+            return driver
+        except Exception as e:
+            logger.warning(f"System chromedriver failed: {e}")
+
+    # Strategy 3: Try webdriver-manager (for local development)
     try:
-        # Use webdriver-manager to auto-download chromedriver
         from webdriver_manager.chrome import ChromeDriverManager
         from selenium.webdriver.chrome.service import Service as ChromeService
 
-        logger.info("Attempting regular Selenium with webdriver-manager...")
+        logger.info("Attempting webdriver-manager...")
         service = ChromeService(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=options)
 
@@ -220,16 +238,17 @@ def create_driver(headless: bool = True):
     except Exception as e:
         logger.warning(f"webdriver-manager failed: {e}, trying direct Chrome")
 
-        # Strategy 3: Try direct Chrome without specifying chromedriver path
+        # Strategy 4: Try direct Chrome without specifying chromedriver path
         try:
             driver = webdriver.Chrome(options=options)
-            logger.info("Browser created with system chromedriver")
+            logger.info("Browser created with auto-detected chromedriver")
             return driver
         except Exception as e2:
             logger.error(f"All browser creation methods failed!")
             logger.error(f"  - undetected-chromedriver: {'not available' if not UC_AVAILABLE else 'failed'}")
+            logger.error(f"  - system chromedriver: not found or failed")
             logger.error(f"  - webdriver-manager: {e}")
-            logger.error(f"  - system chromedriver: {e2}")
+            logger.error(f"  - auto-detect: {e2}")
             raise Exception(f"Could not create browser. Make sure Chrome is installed. Error: {e2}")
 
 

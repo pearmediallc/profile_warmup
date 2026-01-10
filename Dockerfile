@@ -41,6 +41,20 @@ RUN mkdir -p /etc/apt/keyrings \
     && apt-get install -y google-chrome-stable \
     && rm -rf /var/lib/apt/lists/* /tmp/google-chrome.pub
 
+# Install matching ChromeDriver
+RUN CHROME_VERSION=$(google-chrome-stable --version | grep -oP '\d+\.\d+\.\d+' | head -1) \
+    && echo "Chrome version: $CHROME_VERSION" \
+    && CHROMEDRIVER_URL="https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}.0/linux64/chromedriver-linux64.zip" \
+    && echo "Downloading ChromeDriver from: $CHROMEDRIVER_URL" \
+    && wget -q -O /tmp/chromedriver.zip "$CHROMEDRIVER_URL" || \
+       (MAJOR_VERSION=$(echo $CHROME_VERSION | cut -d. -f1) && \
+        wget -q -O /tmp/chromedriver.zip "https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/${CHROME_VERSION}.0/linux64/chromedriver-linux64.zip") \
+    && unzip -q /tmp/chromedriver.zip -d /tmp/ \
+    && mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver \
+    && chmod +x /usr/local/bin/chromedriver \
+    && rm -rf /tmp/chromedriver* \
+    && echo "ChromeDriver installed at: $(which chromedriver)"
+
 # Build Frontend first
 WORKDIR /frontend
 COPY frontend/package*.json ./
