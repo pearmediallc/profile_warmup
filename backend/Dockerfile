@@ -38,9 +38,12 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Set Playwright browser path (so it's found at runtime)
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
 # Install Playwright Chromium (lighter than Chrome)
-# --with-deps ensures all dependencies are installed
-RUN playwright install chromium --with-deps
+# Must use python -m to run playwright install
+RUN python -m playwright install chromium --with-deps
 
 # Copy application code
 COPY . .
