@@ -13,7 +13,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import redis
 
@@ -166,9 +167,21 @@ async def broadcast_message(message: dict):
             pass
 
 
+# Static files directory (for combined frontend+backend deployment)
+STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
+FRONTEND_AVAILABLE = os.path.exists(STATIC_DIR) and os.path.exists(os.path.join(STATIC_DIR, "index.html"))
+
+if FRONTEND_AVAILABLE:
+    # Mount static assets (js, css, etc.)
+    app.mount("/assets", StaticFiles(directory=os.path.join(STATIC_DIR, "assets")), name="assets")
+    logger.info(f"Frontend static files mounted from {STATIC_DIR}")
+
+
 @app.get("/")
 async def root():
-    """Root endpoint"""
+    """Root endpoint - serves frontend if available, otherwise API info"""
+    if FRONTEND_AVAILABLE:
+        return FileResponse(os.path.join(STATIC_DIR, "index.html"))
     return {
         "status": "running",
         "service": "Profile Warm-Up API",

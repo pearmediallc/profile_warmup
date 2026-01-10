@@ -1,7 +1,7 @@
-# Backend Dockerfile for Profile Warmup
+# Combined Dockerfile for Profile Warmup (Frontend + Backend)
 FROM python:3.11-slim
 
-# Install Chrome and dependencies
+# Install Chrome, Node.js and dependencies
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
@@ -27,9 +27,12 @@ RUN apt-get update && apt-get install -y \
     libxkbcommon0 \
     libxrandr2 \
     xdg-utils \
+    # Node.js for frontend build
+    nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Chrome (using modern GPG key method - apt-key is deprecated)
+# Install Chrome (using modern GPG key method)
 RUN mkdir -p /etc/apt/keyrings \
     && wget -q -O /tmp/google-chrome.pub https://dl-ssl.google.com/linux/linux_signing_key.pub \
     && gpg --dearmor -o /etc/apt/keyrings/google-chrome.gpg /tmp/google-chrome.pub \
@@ -38,17 +41,25 @@ RUN mkdir -p /etc/apt/keyrings \
     && apt-get install -y google-chrome-stable \
     && rm -rf /var/lib/apt/lists/* /tmp/google-chrome.pub
 
-# Set working directory
+# Build Frontend first
+WORKDIR /frontend
+COPY frontend/package*.json ./
+RUN npm install
+COPY frontend/ ./
+# Set API URL to empty for same-origin requests
+ENV VITE_API_URL=""
+RUN npm run build
+
+# Setup Backend
 WORKDIR /app
-
-# Copy requirements first (for caching)
-COPY requirements.txt .
-
-# Install Python dependencies
+COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
-COPY . .
+# Copy backend code
+COPY backend/ .
+
+# Copy built frontend to static folder
+RUN mkdir -p /app/static && cp -r /frontend/dist/* /app/static/
 
 # Environment variables
 ENV PYTHONUNBUFFERED=1
