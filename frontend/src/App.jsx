@@ -66,7 +66,17 @@ function App() {
   }, [logs])
 
   const connectWebSocket = () => {
-    const wsUrl = API_URL.replace('http', 'ws') + '/ws'
+    // Build WebSocket URL - handle both same-origin (empty API_URL) and explicit URLs
+    let wsUrl
+    if (API_URL === '' || API_URL === '/') {
+      // Same-origin: use current page's protocol and host
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+      wsUrl = `${protocol}//${window.location.host}/ws`
+    } else {
+      // Explicit URL: convert http(s) to ws(s)
+      wsUrl = API_URL.replace('https://', 'wss://').replace('http://', 'ws://') + '/ws'
+    }
+    console.log('WebSocket URL:', wsUrl)
     wsRef.current = new WebSocket(wsUrl)
 
     wsRef.current.onmessage = (event) => {

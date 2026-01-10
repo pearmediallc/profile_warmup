@@ -10,6 +10,8 @@ import signal
 import logging
 import time
 import random
+import platform
+import os
 from typing import Optional
 from contextlib import contextmanager
 
@@ -24,7 +26,28 @@ logger = logging.getLogger(__name__)
 # Configuration - FOR 2GB RAM
 MAX_CONCURRENT_BROWSERS = 2  # Can run 2 browsers with 2GB RAM
 WARMUP_TIMEOUT = 600  # 10 minutes max per warmup
-PAGE_LOAD_TIMEOUT = 30
+PAGE_LOAD_TIMEOUT = 60  # Increased for slow networks
+
+
+def get_chrome_binary():
+    """Get Chrome binary path based on platform"""
+    system = platform.system()
+    if system == "Darwin":  # macOS
+        mac_path = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+        if os.path.exists(mac_path):
+            return mac_path
+    elif system == "Linux":
+        linux_paths = [
+            "/usr/bin/google-chrome-stable",
+            "/usr/bin/google-chrome",
+            "/usr/bin/chromium-browser",
+            "/usr/bin/chromium"
+        ]
+        for path in linux_paths:
+            if os.path.exists(path):
+                return path
+    # Windows or not found - let Chrome auto-detect
+    return None
 
 
 class BrowserPool:
@@ -85,8 +108,13 @@ def get_chrome_options(headless: bool = True) -> uc.ChromeOptions:
     # === DOCKER/RENDER SPECIFIC ===
     options.add_argument("--remote-debugging-port=0")  # Use random port
     options.add_argument("--disable-setuid-sandbox")
-    options.add_argument("--single-process")  # Required for some containers
-    options.binary_location = "/usr/bin/google-chrome-stable"  # Explicit path
+    # Note: --single-process removed as it causes crashes on many systems
+
+    # Set Chrome binary path (platform-aware)
+    chrome_path = get_chrome_binary()
+    if chrome_path:
+        options.binary_location = chrome_path
+        logger.info(f"Using Chrome at: {chrome_path}")
 
     # === MEMORY OPTIMIZATION ===
     options.add_argument("--disable-extensions")
