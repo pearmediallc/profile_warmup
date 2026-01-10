@@ -82,6 +82,12 @@ def get_chrome_options(headless: bool = True) -> uc.ChromeOptions:
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
 
+    # === DOCKER/RENDER SPECIFIC ===
+    options.add_argument("--remote-debugging-port=0")  # Use random port
+    options.add_argument("--disable-setuid-sandbox")
+    options.add_argument("--single-process")  # Required for some containers
+    options.binary_location = "/usr/bin/google-chrome-stable"  # Explicit path
+
     # === MEMORY OPTIMIZATION ===
     options.add_argument("--disable-extensions")
     options.add_argument("--disable-plugins")
