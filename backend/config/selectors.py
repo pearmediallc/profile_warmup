@@ -24,12 +24,12 @@ LOGIN_SELECTORS = {
     "password_input": 'input[name="pass"]',
 
     # Login button
-    # HTML: <div role="none" class="x1ja2u2z..."><span>Log in</span></div>
-    # Note: Button is a div with role="none" containing span with text
-    "login_button": 'div[role="none"]:has(span:text("Log in"))',
+    # HTML: <button name="login" ...>Log in</button>
+    # VERIFIED working via test
+    "login_button": 'button[name="login"]',
 
     # Alternative login button selector (fallback)
-    "login_button_alt": 'span:text("Log in")',
+    "login_button_alt": 'button:has-text("Log in")',
 }
 
 # =============================================================================
