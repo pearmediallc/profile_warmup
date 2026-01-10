@@ -46,23 +46,45 @@ try:
 except Exception:
     redis_client = None
 
+# Callback functions for direct status updates (when Redis not available)
+_status_callbacks: Dict[str, Any] = {}
+
+
+def set_status_callback(email: str, callback):
+    """Set a callback function for status updates (used when Redis not available)"""
+    if callback is None:
+        _status_callbacks.pop(email, None)
+    else:
+        _status_callbacks[email] = callback
+
 
 def broadcast_status(email: str, status: str, message: str, **extra):
-    """Broadcast status update via Redis pub/sub"""
+    """Broadcast status update via Redis pub/sub or direct callback"""
+    data = {
+        "type": "status",
+        "profile": email,
+        "status": status,
+        "message": message,
+        "timestamp": datetime.utcnow().isoformat(),
+        **extra
+    }
+
+    # Try Redis first
     if redis_client:
         try:
-            data = {
-                "type": "status",
-                "profile": email,
-                "status": status,
-                "message": message,
-                "timestamp": datetime.utcnow().isoformat(),
-                **extra
-            }
             redis_client.publish("warmup_status", json.dumps(data))
-            logger.debug(f"Broadcast: {status} - {message}")
+            logger.debug(f"Broadcast via Redis: {status} - {message}")
+            return
         except Exception as e:
-            logger.error(f"Broadcast error: {e}")
+            logger.error(f"Redis broadcast error: {e}")
+
+    # Fallback to direct callback if registered
+    if email in _status_callbacks and _status_callbacks[email]:
+        try:
+            _status_callbacks[email](data)
+            logger.debug(f"Broadcast via callback: {status} - {message}")
+        except Exception as e:
+            logger.error(f"Callback broadcast error: {e}")
 
 # Screenshots directory
 SCREENSHOTS_DIR = os.getenv("SCREENSHOTS_DIR", "/tmp/warmup_screenshots")

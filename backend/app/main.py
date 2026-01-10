@@ -19,7 +19,7 @@ from pydantic import BaseModel
 import redis
 
 from app.celery_app import celery_app
-from app.tasks import warmup_profile_task, SCREENSHOTS_DIR, screenshot_to_base64, CLOUDINARY_CONFIGURED
+from app.tasks import warmup_profile_task, SCREENSHOTS_DIR, screenshot_to_base64, CLOUDINARY_CONFIGURED, set_status_callback
 from app.browser import browser_pool
 
 # Setup logging
@@ -321,11 +321,18 @@ async def run_warmup_direct(email: str, password: str):
     Run warmup directly without Celery
     Fallback for when Redis is not available
     """
-    from app.tasks import warmup_profile_task
-
     try:
-        # Run synchronously
-        result = warmup_profile_task(email, password)
+        # Set up callback for status updates (since Redis is not available)
+        # This allows broadcast_status() in tasks.py to send updates to WebSocket clients
+        set_status_callback(email, lambda data: asyncio.create_task(broadcast_message(data)))
+
+        # Run the task in a thread pool to not block the event loop
+        # Use __wrapped__ to get the actual function (bypass Celery's bind=True)
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: warmup_profile_task.__wrapped__(None, email, password)
+        )
 
         await broadcast_message({
             "type": "complete",
@@ -336,6 +343,7 @@ async def run_warmup_direct(email: str, password: str):
         })
 
     except Exception as e:
+        logger.error(f"Direct warmup error: {e}")
         await broadcast_message({
             "type": "error",
             "profile": email,
@@ -344,6 +352,8 @@ async def run_warmup_direct(email: str, password: str):
         })
 
     finally:
+        # Clear callback
+        set_status_callback(email, None)
         if email in active_tasks:
             del active_tasks[email]
 
