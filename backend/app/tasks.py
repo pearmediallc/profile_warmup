@@ -1,5 +1,6 @@
 """
 Warmup tasks for Facebook profile warming
+Using Playwright for better memory efficiency (512MB RAM compatible)
 """
 
 import logging
@@ -15,11 +16,8 @@ import redis
 import cloudinary
 import cloudinary.uploader
 
-from app.browser import browser_session, browser_pool, human_delay, human_type, scroll_page
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+# Use Playwright browser (lighter than Selenium)
+from app.playwright_browser import browser_session, browser_pool, human_delay, scroll_page
 
 logger = logging.getLogger(__name__)
 
@@ -141,11 +139,12 @@ def screenshot_to_base64(filepath: str) -> Optional[str]:
 
 # Import config (from backend/config.py)
 from config import WARM_UP_CONFIG
+from config.selectors import LOGIN_SELECTORS, LIKE_SELECTORS, FRIEND_SELECTORS, LOGOUT_SELECTORS, HOME_SELECTORS
 
 
 def warmup_profile_task(email: str, password: str) -> Dict[str, Any]:
     """
-    Run warmup for a profile
+    Run warmup for a profile using Playwright (low memory)
     - 10 minute timeout
     - Auto cleanup on crash
     """
@@ -162,10 +161,11 @@ def warmup_profile_task(email: str, password: str) -> Dict[str, Any]:
 
     try:
         logger.info(f"Starting warmup for {email}")
-        broadcast_status(email, "starting", "🚀 Starting browser...")
+        broadcast_status(email, "starting", "Starting browser...")
 
-        with browser_session(headless=False) as driver:
-            broadcast_status(email, "browser_ready", "🌐 Browser launched, navigating to Facebook...")
+        # headless=True for server (Render), saves memory
+        with browser_session(headless=True) as driver:
+            broadcast_status(email, "browser_ready", "Browser launched, navigating to Facebook...")
 
             # Login with detailed tracking
             login_result = login_to_facebook(driver, email, password)
@@ -175,14 +175,14 @@ def warmup_profile_task(email: str, password: str) -> Dict[str, Any]:
             if not login_result["success"]:
                 stats["status"] = "login_failed"
                 stats["error"] = login_result.get("error", "Unknown login error")
-                broadcast_status(email, "login_failed", f"❌ Login failed: {stats['error']}",
+                broadcast_status(email, "login_failed", f"Login failed: {stats['error']}",
                                error=stats["error"], screenshots=len(stats["login_screenshots"]))
                 logger.error(f"Login failed for {email}: {stats['error']}")
                 return stats
 
             logger.info(f"Login successful for {email}")
             stats["status"] = "logged_in"
-            broadcast_status(email, "logged_in", "✅ Login successful! Starting warmup activities...")
+            broadcast_status(email, "logged_in", "Login successful! Starting warmup activities...")
 
             # Calculate session duration
             min_duration = WARM_UP_CONFIG.get('min_duration_minutes', 5) * 60
@@ -191,7 +191,7 @@ def warmup_profile_task(email: str, password: str) -> Dict[str, Any]:
             session_end = time.time() + session_duration
 
             logger.info(f"Session duration: {session_duration/60:.1f} minutes")
-            broadcast_status(email, "warmup_started", f"⏱️ Warmup duration: {session_duration/60:.1f} minutes",
+            broadcast_status(email, "warmup_started", f"Warmup duration: {session_duration/60:.1f} minutes",
                            duration_minutes=round(session_duration/60, 1))
 
             # Track last status broadcast time
@@ -214,7 +214,7 @@ def warmup_profile_task(email: str, password: str) -> Dict[str, Any]:
                     elif action == "like":
                         if like_post(driver):
                             stats["likes"] += 1
-                            broadcast_status(email, "liked", f"❤️ Liked a post (total: {stats['likes']})",
+                            broadcast_status(email, "liked", f"Liked a post (total: {stats['likes']})",
                                            likes=stats["likes"])
 
                     elif action == "pause":
@@ -227,7 +227,7 @@ def warmup_profile_task(email: str, password: str) -> Dict[str, Any]:
                     if time.time() - last_broadcast > 30:
                         remaining = session_end - time.time()
                         broadcast_status(email, "in_progress",
-                                       f"📜 Scrolling... ({stats['scroll_count']} scrolls, {stats['likes']} likes, {remaining/60:.1f} min left)",
+                                       f"Scrolling... ({stats['scroll_count']} scrolls, {stats['likes']} likes, {remaining/60:.1f} min left)",
                                        scrolls=stats["scroll_count"], likes=stats["likes"],
                                        remaining_minutes=round(remaining/60, 1))
                         last_broadcast = time.time()
@@ -239,11 +239,11 @@ def warmup_profile_task(email: str, password: str) -> Dict[str, Any]:
             # Visit friend suggestions (80% chance)
             if random.random() < WARM_UP_CONFIG.get('friend_suggestions_probability', 0.8):
                 try:
-                    broadcast_status(email, "friend_suggestions", "👥 Visiting friend suggestions...")
+                    broadcast_status(email, "friend_suggestions", "Visiting friend suggestions...")
                     requests_sent = visit_friend_suggestions(driver)
                     stats["friend_requests"] = requests_sent
                     if requests_sent > 0:
-                        broadcast_status(email, "friends_added", f"✅ Sent {requests_sent} friend request(s)",
+                        broadcast_status(email, "friends_added", f"Sent {requests_sent} friend request(s)",
                                        friend_requests=requests_sent)
                 except Exception as e:
                     logger.warning(f"Friend suggestions error: {e}")
@@ -254,7 +254,7 @@ def warmup_profile_task(email: str, password: str) -> Dict[str, Any]:
                 WARM_UP_CONFIG.get('max_logout_delay_minutes', 7) * 60
             )
             logger.info(f"Waiting {logout_delay/60:.1f} min before logout")
-            broadcast_status(email, "pre_logout", f"⏳ Waiting {logout_delay/60:.1f} minutes before logout...",
+            broadcast_status(email, "pre_logout", f"Waiting {logout_delay/60:.1f} minutes before logout...",
                            logout_delay_minutes=round(logout_delay/60, 1))
 
             # Light scrolling during logout delay
@@ -265,18 +265,18 @@ def warmup_profile_task(email: str, password: str) -> Dict[str, Any]:
 
             # Logout
             if WARM_UP_CONFIG.get('perform_logout', True):
-                broadcast_status(email, "logging_out", "🚪 Logging out...")
+                broadcast_status(email, "logging_out", "Logging out...")
                 logout_from_facebook(driver)
 
             stats["status"] = "completed"
-            broadcast_status(email, "completed", "🎉 Warmup completed successfully!",
+            broadcast_status(email, "completed", "Warmup completed successfully!",
                            stats=stats)
 
     except Exception as e:
         logger.error(f"Warmup error for {email}: {e}")
         stats["status"] = "error"
         stats["error"] = str(e)
-        broadcast_status(email, "error", f"❌ Error: {str(e)}", error=str(e))
+        broadcast_status(email, "error", f"Error: {str(e)}", error=str(e))
 
         # Cleanup on error
         browser_pool.cleanup_all()
@@ -290,7 +290,7 @@ def warmup_profile_task(email: str, password: str) -> Dict[str, Any]:
 
 def login_to_facebook(driver, email: str, password: str) -> Dict[str, Any]:
     """
-    Login to Facebook with detailed status and screenshots
+    Login to Facebook using Playwright
     Returns dict with success status and screenshots
     """
     result = {
@@ -311,18 +311,15 @@ def login_to_facebook(driver, email: str, password: str) -> Dict[str, Any]:
         if screenshot:
             result["screenshots"].append({"stage": "login_page", **screenshot})
 
-        # Find and fill email
+        # Find and fill email using Playwright
+        # Selector from config/selectors.py - easy to update if Facebook changes HTML
         logger.info(f"[{email}] Entering email...")
-        email_field = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.ID, "email"))
-        )
-        human_type(email_field, email)
+        driver.human_type(LOGIN_SELECTORS["email_input"], email)
         human_delay(0.5, 1)
 
         # Find and fill password
         logger.info(f"[{email}] Entering password...")
-        password_field = driver.find_element(By.ID, "pass")
-        human_type(password_field, password)
+        driver.human_type(LOGIN_SELECTORS["password_input"], password)
         human_delay(0.5, 1)
 
         # Screenshot: Before clicking login
@@ -330,10 +327,9 @@ def login_to_facebook(driver, email: str, password: str) -> Dict[str, Any]:
         if screenshot:
             result["screenshots"].append({"stage": "before_login", **screenshot})
 
-        # Click login
+        # Click login button
         logger.info(f"[{email}] Clicking login button...")
-        login_button = driver.find_element(By.NAME, "login")
-        login_button.click()
+        driver.human_click(LOGIN_SELECTORS["login_button"])
         human_delay(4, 6)
 
         # Screenshot: After login attempt
@@ -342,7 +338,7 @@ def login_to_facebook(driver, email: str, password: str) -> Dict[str, Any]:
             result["screenshots"].append({"stage": "after_login", **screenshot})
 
         result["current_url"] = driver.current_url
-        result["page_title"] = driver.title
+        result["page_title"] = driver.page.title()
 
         # Check various failure conditions
         current_url = driver.current_url.lower()
@@ -393,15 +389,6 @@ def login_to_facebook(driver, email: str, password: str) -> Dict[str, Any]:
         result["success"] = True
         return result
 
-    except TimeoutException as e:
-        logger.error(f"[{email}] LOGIN TIMEOUT: Could not find login elements")
-        screenshot = take_screenshot(driver, "ERROR_timeout", email)
-        if screenshot:
-            result["screenshots"].append({"stage": "timeout_error", **screenshot})
-        result["error"] = f"Timeout: {str(e)}"
-        result["current_url"] = driver.current_url if driver else None
-        return result
-
     except Exception as e:
         logger.error(f"[{email}] LOGIN ERROR: {str(e)}")
         try:
@@ -416,19 +403,16 @@ def login_to_facebook(driver, email: str, password: str) -> Dict[str, Any]:
 
 
 def like_post(driver) -> bool:
-    """Try to like a visible post"""
+    """Try to like a visible post using Playwright"""
     try:
-        # Find like buttons
-        like_buttons = driver.find_elements(
-            By.XPATH,
-            '//div[@aria-label="Like"][@role="button"] | //span[text()="Like"]/ancestor::div[@role="button"]'
-        )
+        # Find like buttons using selector from config/selectors.py
+        like_buttons = driver.find_elements("xpath", LIKE_SELECTORS["like_button_xpath"])
 
         visible_buttons = [btn for btn in like_buttons if btn.is_displayed()]
 
         if visible_buttons:
             button = random.choice(visible_buttons[:5])
-            driver.execute_script("arguments[0].click();", button)
+            button.click()
             logger.info("Liked a post")
             human_delay(2, 5)
             return True
@@ -441,7 +425,7 @@ def like_post(driver) -> bool:
 
 
 def visit_friend_suggestions(driver) -> int:
-    """Visit friend suggestions and send requests"""
+    """Visit friend suggestions and send requests using Playwright"""
     requests_sent = 0
 
     try:
@@ -452,11 +436,8 @@ def visit_friend_suggestions(driver) -> int:
         for _ in range(random.randint(2, 4)):
             scroll_page(driver, random.randint(300, 600))
 
-        # Find Add Friend buttons
-        add_buttons = driver.find_elements(
-            By.XPATH,
-            '//span[text()="Add friend"]/ancestor::div[@role="button"] | //div[@aria-label="Add friend"]'
-        )
+        # Find Add Friend buttons using selector from config/selectors.py
+        add_buttons = driver.find_elements("xpath", FRIEND_SELECTORS["add_friend_xpath"])
 
         visible_buttons = [btn for btn in add_buttons if btn.is_displayed()]
 
@@ -469,7 +450,7 @@ def visit_friend_suggestions(driver) -> int:
         for i, button in enumerate(visible_buttons[:target]):
             if random.random() < 0.6:  # 60% chance to actually send
                 try:
-                    driver.execute_script("arguments[0].click();", button)
+                    button.click()
                     requests_sent += 1
                     logger.info(f"Sent friend request #{requests_sent}")
                     human_delay(60, 120)  # Wait between requests
@@ -487,26 +468,14 @@ def visit_friend_suggestions(driver) -> int:
 
 
 def logout_from_facebook(driver) -> bool:
-    """Logout from Facebook"""
+    """Logout from Facebook using Playwright"""
     try:
-        # Click account menu
-        account_menu = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((
-                By.XPATH,
-                '//div[@aria-label="Your profile"] | //div[@aria-label="Account"] | //image[@data-visualcompletion="media-vc-image"]'
-            ))
-        )
-        account_menu.click()
+        # Click account menu using selector from config/selectors.py
+        driver.human_click(LOGOUT_SELECTORS["profile_menu"])
         human_delay(1, 2)
 
         # Click logout
-        logout_button = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((
-                By.XPATH,
-                '//span[text()="Log Out"] | //span[text()="Log out"]'
-            ))
-        )
-        logout_button.click()
+        driver.human_click(LOGOUT_SELECTORS["logout_button"])
         human_delay(2, 4)
 
         logger.info("Logged out successfully")
@@ -514,4 +483,16 @@ def logout_from_facebook(driver) -> bool:
 
     except Exception as e:
         logger.error(f"Logout error: {e}")
+        return False
+
+
+def click_see_more(driver) -> bool:
+    """Click 'See more' in sidebar to expand shortcuts"""
+    try:
+        driver.human_click(HOME_SELECTORS["see_more"])
+        human_delay(1, 2)
+        logger.info("Clicked 'See more' in sidebar")
+        return True
+    except Exception as e:
+        logger.debug(f"See more click error: {e}")
         return False

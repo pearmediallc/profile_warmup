@@ -5,10 +5,8 @@ uvicorn==0.24.0
 websockets==12.0
 pydantic==2.5.2
 
-# Browser Automation
-selenium==4.15.2
-undetected-chromedriver==3.5.4
-webdriver-manager==4.0.1
+# Browser Automation - Playwright (lighter than Selenium for 512MB RAM)
+playwright==1.40.0
 
 # Redis for status broadcasting
 redis==5.0.1

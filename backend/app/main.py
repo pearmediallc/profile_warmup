@@ -19,7 +19,7 @@ from pydantic import BaseModel
 import redis
 
 from app.tasks import warmup_profile_task, SCREENSHOTS_DIR, screenshot_to_base64, CLOUDINARY_CONFIGURED, set_status_callback
-from app.browser import browser_pool
+from app.playwright_browser import browser_pool
 
 # Setup logging
 logging.basicConfig(

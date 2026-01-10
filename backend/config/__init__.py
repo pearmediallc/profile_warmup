@@ -1,0 +1,10 @@
+# Config package
+from config.selectors import (
+    LOGIN_SELECTORS,
+    HOME_SELECTORS,
+    LIKE_SELECTORS,
+    FRIEND_SELECTORS,
+    LOGOUT_SELECTORS,
+    ERROR_SELECTORS,
+    COMMENT_SELECTORS,
+)
