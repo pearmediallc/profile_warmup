@@ -1,7 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+// Use empty string for same-origin requests in production, localhost for development
+const API_URL = import.meta.env.VITE_API_URL !== undefined
+  ? import.meta.env.VITE_API_URL
+  : 'http://localhost:8000'
 
 // Debug: Log the API URL being used (helpful for deployment troubleshooting)
 console.log('API URL:', API_URL)
