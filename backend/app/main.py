@@ -18,7 +18,6 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import redis
 
-from app.celery_app import celery_app
 from app.tasks import warmup_profile_task, SCREENSHOTS_DIR, screenshot_to_base64, CLOUDINARY_CONFIGURED, set_status_callback
 from app.browser import browser_pool
 
@@ -248,7 +247,7 @@ async def websocket_endpoint(websocket: WebSocket):
 async def start_warmup(profile: Profile, background_tasks: BackgroundTasks):
     """
     Start warm-up for a profile
-    Uses Celery if Redis available, otherwise runs in background
+    Runs warmup task in background
     """
     email = profile.email
 
@@ -257,59 +256,26 @@ async def start_warmup(profile: Profile, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=400, detail="Warmup already running for this profile")
 
     try:
-        if REDIS_AVAILABLE:
-            # Use Celery for production
-            task = warmup_profile_task.delay(email, profile.password)
-            task_id = task.id
+        active_tasks[email] = {
+            "status": "running",
+            "started_at": datetime.utcnow().isoformat()
+        }
 
-            active_tasks[email] = {
-                "task_id": task_id,
-                "status": "running",
-                "started_at": datetime.utcnow().isoformat()
-            }
+        # Run in background
+        background_tasks.add_task(run_warmup_direct, email, profile.password)
 
-            logger.info(f"Warmup task started via Celery: {task_id}")
+        await broadcast_message({
+            "type": "status",
+            "profile": email,
+            "status": "starting",
+            "message": "🚀 Starting warmup..."
+        })
 
-            # Broadcast status
-            await broadcast_message({
-                "type": "status",
-                "profile": email,
-                "status": "starting",
-                "message": "🚀 Warmup task queued...",
-                "task_id": task_id
-            })
-
-            return WarmupResponse(
-                status="started",
-                profile=email,
-                task_id=task_id,
-                message="Warmup queued via Celery"
-            )
-
-        else:
-            # Fallback: run directly (not recommended for production)
-            logger.warning("Redis not available, running warmup directly")
-
-            active_tasks[email] = {
-                "status": "running",
-                "started_at": datetime.utcnow().isoformat()
-            }
-
-            # Run in background (simplified version)
-            background_tasks.add_task(run_warmup_direct, email, profile.password)
-
-            await broadcast_message({
-                "type": "status",
-                "profile": email,
-                "status": "starting",
-                "message": "🚀 Starting warmup (direct mode)..."
-            })
-
-            return WarmupResponse(
-                status="started",
-                profile=email,
-                message="Warmup started directly (Redis not available)"
-            )
+        return WarmupResponse(
+            status="started",
+            profile=email,
+            message="Warmup started"
+        )
 
     except Exception as e:
         logger.error(f"Failed to start warmup: {e}")
@@ -318,20 +284,17 @@ async def start_warmup(profile: Profile, background_tasks: BackgroundTasks):
 
 async def run_warmup_direct(email: str, password: str):
     """
-    Run warmup directly without Celery
-    Fallback for when Redis is not available
+    Run warmup in background thread
     """
     try:
-        # Set up callback for status updates (since Redis is not available)
-        # This allows broadcast_status() in tasks.py to send updates to WebSocket clients
+        # Set up callback for status updates via WebSocket
         set_status_callback(email, lambda data: asyncio.create_task(broadcast_message(data)))
 
         # Run the task in a thread pool to not block the event loop
-        # Use .run() method which is the actual task function (Celery handles self automatically)
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
             None,
-            lambda: warmup_profile_task.run(email, password)
+            lambda: warmup_profile_task(email, password)
         )
 
         await broadcast_message({
@@ -343,7 +306,7 @@ async def run_warmup_direct(email: str, password: str):
         })
 
     except Exception as e:
-        logger.error(f"Direct warmup error: {e}")
+        logger.error(f"Warmup error: {e}")
         await broadcast_message({
             "type": "error",
             "profile": email,
@@ -365,18 +328,6 @@ async def get_warmup_status(email: str):
         return {"status": "not_found", "profile": email}
 
     task_info = active_tasks[email]
-
-    if REDIS_AVAILABLE and "task_id" in task_info:
-        from celery.result import AsyncResult
-        result = AsyncResult(task_info["task_id"], app=celery_app)
-
-        return {
-            "status": result.status,
-            "profile": email,
-            "task_id": task_info["task_id"],
-            "result": result.result if result.ready() else None
-        }
-
     return {"status": task_info.get("status", "unknown"), "profile": email}
 
 
@@ -385,11 +336,6 @@ async def stop_warmup(email: str):
     """Stop a running warmup task"""
     if email not in active_tasks:
         raise HTTPException(status_code=404, detail="No active warmup for this profile")
-
-    task_info = active_tasks[email]
-
-    if REDIS_AVAILABLE and "task_id" in task_info:
-        celery_app.control.revoke(task_info["task_id"], terminate=True)
 
     # Cleanup browsers
     browser_pool.cleanup_all()

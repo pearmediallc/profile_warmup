@@ -10,8 +10,7 @@ selenium==4.15.2
 undetected-chromedriver==3.5.4
 webdriver-manager==4.0.1
 
-# Background Jobs
-celery==5.3.4
+# Redis for status broadcasting
 redis==5.0.1
 
 # Utilities

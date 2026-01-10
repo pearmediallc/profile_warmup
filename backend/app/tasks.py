@@ -1,5 +1,5 @@
 """
-Celery tasks for warmup operations
+Warmup tasks for Facebook profile warming
 """
 
 import logging
@@ -11,13 +11,10 @@ import json
 from datetime import datetime
 from typing import Dict, Any, Optional
 
-from celery import shared_task
-from celery.exceptions import SoftTimeLimitExceeded
 import redis
 import cloudinary
 import cloudinary.uploader
 
-from app.celery_app import celery_app
 from app.browser import browser_session, browser_pool, human_delay, human_type, scroll_page
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -146,18 +143,10 @@ def screenshot_to_base64(filepath: str) -> Optional[str]:
 from config import WARM_UP_CONFIG
 
 
-@celery_app.task(
-    bind=True,
-    max_retries=2,
-    time_limit=660,
-    soft_time_limit=600,
-    acks_late=True
-)
-def warmup_profile_task(self, email: str, password: str) -> Dict[str, Any]:
+def warmup_profile_task(email: str, password: str) -> Dict[str, Any]:
     """
-    Run warmup for a profile in background
+    Run warmup for a profile
     - 10 minute timeout
-    - Max 2 retries on failure
     - Auto cleanup on crash
     """
     stats = {
@@ -283,12 +272,6 @@ def warmup_profile_task(self, email: str, password: str) -> Dict[str, Any]:
             broadcast_status(email, "completed", "🎉 Warmup completed successfully!",
                            stats=stats)
 
-    except SoftTimeLimitExceeded:
-        logger.error(f"Warmup timeout for {email}")
-        stats["status"] = "timeout"
-        broadcast_status(email, "timeout", "⏰ Warmup timed out (10 minute limit reached)")
-        browser_pool.cleanup_all()
-
     except Exception as e:
         logger.error(f"Warmup error for {email}: {e}")
         stats["status"] = "error"
@@ -297,11 +280,6 @@ def warmup_profile_task(self, email: str, password: str) -> Dict[str, Any]:
 
         # Cleanup on error
         browser_pool.cleanup_all()
-
-        # Retry
-        if self.request.retries < self.max_retries:
-            broadcast_status(email, "retrying", f"🔄 Retrying... (attempt {self.request.retries + 2}/{self.max_retries + 1})")
-            raise self.retry(exc=e, countdown=60)
 
     finally:
         stats["duration_seconds"] = time.time() - start_time

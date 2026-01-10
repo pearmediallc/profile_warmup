@@ -39,31 +39,7 @@ services:
     healthCheckPath: /health
     autoDeploy: true
 
-  # Celery Worker - Docker Background Worker (requires paid plan for Chrome)
-  - type: worker
-    name: profile-warmup-worker
-    runtime: docker
-    dockerfilePath: ./backend/Dockerfile
-    dockerContext: ./backend
-    startCommand: celery -A app.celery_app worker --loglevel=info --concurrency=1
-    envVars:
-      - key: REDIS_URL
-        fromService:
-          name: profile-warmup-redis
-          type: redis
-          property: connectionString
-      - key: PYTHONUNBUFFERED
-        value: "1"
-      # Cloudinary - Add your credentials
-      - key: CLOUDINARY_CLOUD_NAME
-        sync: false
-      - key: CLOUDINARY_API_KEY
-        sync: false
-      - key: CLOUDINARY_API_SECRET
-        sync: false
-    autoDeploy: true
-
-  # Redis - For Celery (Free tier)
+  # Redis - For status broadcasting (Free tier)
   - type: redis
     name: profile-warmup-redis
     plan: free
