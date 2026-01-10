@@ -222,7 +222,8 @@ async def health_check():
 async def get_config():
     """Get warmup configuration"""
     import sys
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    # Add backend directory to path (parent of app/)
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from config import WARM_UP_CONFIG
     return WARM_UP_CONFIG
 
