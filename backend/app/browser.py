@@ -1,6 +1,7 @@
 """
 Chrome Browser Manager
-- Supports both undetected-chromedriver (local) and regular Selenium (Docker)
+- Uses undetected-chromedriver for local machines (Mac/Windows/Linux laptops)
+- Falls back to regular Selenium for Docker/server environments
 - Max concurrent browsers limit
 - Timeout protection
 - Auto cleanup on crash
@@ -31,8 +32,17 @@ MAX_CONCURRENT_BROWSERS = 2  # Can run 2 browsers with 2GB RAM
 WARMUP_TIMEOUT = 600  # 10 minutes max per warmup
 PAGE_LOAD_TIMEOUT = 60  # Increased for slow networks
 
-# Detect if running in Docker/container
-IS_DOCKER = os.path.exists('/.dockerenv') or os.environ.get('RENDER', False)
+# Detect if running in Docker/container/server
+IS_DOCKER = os.path.exists('/.dockerenv') or os.environ.get('RENDER', False) or os.environ.get('DOCKER', False)
+
+# Try to import undetected_chromedriver (for local machines)
+try:
+    import undetected_chromedriver as uc
+    UC_AVAILABLE = True
+    logger.info("undetected-chromedriver available")
+except ImportError:
+    UC_AVAILABLE = False
+    logger.info("undetected-chromedriver not available, will use regular Selenium")
 
 
 def get_chrome_binary():
@@ -160,8 +170,39 @@ def get_chrome_options(headless: bool = True) -> Options:
 def create_driver(headless: bool = True):
     """
     Create a Chrome WebDriver
-    Uses regular Selenium (works better in Docker than undetected-chromedriver)
+    - Local machines (Mac/Windows/Linux): Uses undetected-chromedriver for stealth
+    - Docker/Server: Uses regular Selenium with webdriver-manager
     """
+
+    # Strategy 1: Use undetected-chromedriver for local machines (better stealth)
+    if UC_AVAILABLE and not IS_DOCKER:
+        try:
+            logger.info("Attempting undetected-chromedriver (local machine)...")
+            uc_options = uc.ChromeOptions()
+
+            if headless:
+                uc_options.add_argument("--headless=new")
+
+            # Memory optimization
+            uc_options.add_argument("--disable-extensions")
+            uc_options.add_argument("--disable-plugins")
+            uc_options.add_argument("--disable-dev-shm-usage")
+            uc_options.add_argument("--no-sandbox")
+            uc_options.add_argument("--window-size=1920,1080")
+
+            # Set Chrome path if found
+            chrome_path = get_chrome_binary()
+            if chrome_path:
+                uc_options.binary_location = chrome_path
+
+            driver = uc.Chrome(options=uc_options, use_subprocess=True)
+            logger.info("Browser created with undetected-chromedriver (stealth mode)")
+            return driver
+
+        except Exception as e:
+            logger.warning(f"undetected-chromedriver failed: {e}, falling back to regular Selenium")
+
+    # Strategy 2: Regular Selenium with webdriver-manager (for Docker or fallback)
     options = get_chrome_options(headless)
 
     try:
@@ -169,6 +210,7 @@ def create_driver(headless: bool = True):
         from webdriver_manager.chrome import ChromeDriverManager
         from selenium.webdriver.chrome.service import Service as ChromeService
 
+        logger.info("Attempting regular Selenium with webdriver-manager...")
         service = ChromeService(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=options)
 
@@ -178,14 +220,17 @@ def create_driver(headless: bool = True):
     except Exception as e:
         logger.warning(f"webdriver-manager failed: {e}, trying direct Chrome")
 
-        # Fallback: try direct Chrome without specifying chromedriver path
+        # Strategy 3: Try direct Chrome without specifying chromedriver path
         try:
             driver = webdriver.Chrome(options=options)
             logger.info("Browser created with system chromedriver")
             return driver
         except Exception as e2:
-            logger.error(f"Direct Chrome also failed: {e2}")
-            raise
+            logger.error(f"All browser creation methods failed!")
+            logger.error(f"  - undetected-chromedriver: {'not available' if not UC_AVAILABLE else 'failed'}")
+            logger.error(f"  - webdriver-manager: {e}")
+            logger.error(f"  - system chromedriver: {e2}")
+            raise Exception(f"Could not create browser. Make sure Chrome is installed. Error: {e2}")
 
 
 class BrowserManager:
