@@ -237,7 +237,6 @@ def create_driver(headless: bool = True):
         # Fix: webdriver-manager sometimes returns wrong path (e.g., THIRD_PARTY_NOTICES)
         # Ensure we get the actual chromedriver binary
         if driver_path and not driver_path.endswith('chromedriver'):
-            import os
             driver_dir = os.path.dirname(driver_path)
             # Look for the actual chromedriver binary
             for name in ['chromedriver', 'chromedriver.exe']:
