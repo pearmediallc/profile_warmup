@@ -327,11 +327,11 @@ async def run_warmup_direct(email: str, password: str):
         set_status_callback(email, lambda data: asyncio.create_task(broadcast_message(data)))
 
         # Run the task in a thread pool to not block the event loop
-        # Use __wrapped__ to get the actual function (bypass Celery's bind=True)
+        # Use .run() method which is the actual task function (Celery handles self automatically)
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
             None,
-            lambda: warmup_profile_task.__wrapped__(None, email, password)
+            lambda: warmup_profile_task.run(email, password)
         )
 
         await broadcast_message({
