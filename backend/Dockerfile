@@ -2,7 +2,11 @@
 FROM python:3.11-slim
 
 # Cache buster - change this to force rebuild
-ARG CACHEBUST=8
+ARG CACHEBUST=9
+
+# Set Playwright browser path to a fixed location INSIDE /app
+# This ensures browsers are found regardless of user/home directory
+ENV PLAYWRIGHT_BROWSERS_PATH=/app/.playwright-browsers
 
 # Install system dependencies for Chromium
 RUN apt-get update && apt-get install -y \
@@ -40,28 +44,31 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright browsers - THIS IS CRITICAL
-# Must happen AFTER pip install playwright
-RUN echo "Installing Playwright Chromium browser..." && \
+# Install Playwright browsers to the fixed path
+# PLAYWRIGHT_BROWSERS_PATH is already set above
+RUN echo "Installing Playwright Chromium to $PLAYWRIGHT_BROWSERS_PATH..." && \
     playwright install chromium && \
     playwright install-deps chromium && \
     echo "Browser installation complete!"
 
 # VERIFY the browser exists - FAIL BUILD if not
 RUN echo "=== VERIFYING BROWSER INSTALLATION ===" && \
-    ls -la /root/.cache/ms-playwright/ && \
-    CHROME_PATH=$(find /root/.cache/ms-playwright -name "chrome" -type f | head -1) && \
+    echo "Browser path: $PLAYWRIGHT_BROWSERS_PATH" && \
+    ls -la $PLAYWRIGHT_BROWSERS_PATH/ && \
+    CHROME_PATH=$(find $PLAYWRIGHT_BROWSERS_PATH -name "chrome" -type f 2>/dev/null | head -1) && \
     if [ -z "$CHROME_PATH" ]; then \
         echo "ERROR: Chrome executable NOT FOUND!" && \
+        find $PLAYWRIGHT_BROWSERS_PATH -type f -name "*chrom*" 2>/dev/null && \
         exit 1; \
     else \
-        echo "SUCCESS: Found Chrome at: $CHROME_PATH"; \
+        echo "SUCCESS: Found Chrome at: $CHROME_PATH" && \
+        ls -la "$CHROME_PATH"; \
     fi
 
 # Copy application code
 COPY . .
 
-# Environment variables
+# Environment variables (PLAYWRIGHT_BROWSERS_PATH already set above)
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV RENDER=true

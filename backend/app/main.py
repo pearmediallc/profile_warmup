@@ -232,11 +232,13 @@ async def debug_browser():
     import subprocess
 
     print("[DEBUG] /debug/browser called", flush=True)
+    browser_path = os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '/app/.playwright-browsers')
     result = {
-        "code_version": "2024-01-12-v7-all-fixes",
+        "code_version": "2024-01-12-v8-fixed-browser-path",
         "python_version": sys.version,
         "cwd": os.getcwd(),
         "playwright_version": None,
+        "playwright_browsers_path": browser_path,
         "chromium_paths": [],
         "env_render": os.environ.get("RENDER", "not set"),
         "error": None
@@ -248,13 +250,18 @@ async def debug_browser():
         result["playwright_version"] = pw_result.stdout.strip() if pw_result.stdout else pw_result.stderr.strip()
         print(f"[DEBUG] Playwright version: {result['playwright_version']}", flush=True)
 
-        # Try to find chromium in correct location
-        find_result = subprocess.run(
-            ['find', '/root/.cache/ms-playwright', '-name', 'chrome', '-type', 'f'],
-            capture_output=True, text=True, timeout=30
-        )
-        if find_result.stdout:
-            result["chromium_paths"] = find_result.stdout.strip().split('\n')[:5]
+        # Try to find chromium in the configured location
+        search_paths = [browser_path, '/app/.playwright-browsers', '/root/.cache/ms-playwright']
+        for search_path in search_paths:
+            if os.path.exists(search_path):
+                find_result = subprocess.run(
+                    ['find', search_path, '-name', 'chrome', '-type', 'f'],
+                    capture_output=True, text=True, timeout=30
+                )
+                if find_result.stdout:
+                    result["chromium_paths"] = find_result.stdout.strip().split('\n')[:5]
+                    result["browser_found_in"] = search_path
+                    break
         print(f"[DEBUG] Chromium paths: {result['chromium_paths']}", flush=True)
 
     except Exception as e:
@@ -273,8 +280,10 @@ async def test_browser_launch():
     import subprocess
     from playwright.async_api import async_playwright
 
+    browser_path = os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '/app/.playwright-browsers')
     result = {
-        "code_version": "2024-01-12-v7-all-fixes",
+        "code_version": "2024-01-12-v8-fixed-browser-path",
+        "playwright_browsers_path": browser_path,
         "steps": [],
         "success": False,
         "error": None,
@@ -300,29 +309,32 @@ async def test_browser_launch():
 
         # Step 2: Find Chromium (check multiple locations)
         result["steps"].append("2. Looking for Chromium executable...")
+        result["steps"].append(f"   PLAYWRIGHT_BROWSERS_PATH = {browser_path}")
         try:
-            # Check /root/.cache/ms-playwright
-            find_result = subprocess.run(
-                ['find', '/root/.cache/ms-playwright', '-name', 'chrome', '-type', 'f'],
-                capture_output=True, text=True, timeout=30
-            )
-            if find_result.stdout:
-                paths = find_result.stdout.strip().split('\n')[:3]
-                result["chromium_paths"] = paths
-                result["steps"].append(f"   ✓ Found: {paths[0] if paths else 'none'}")
-            else:
-                result["steps"].append("   ✗ No chrome in /root/.cache/ms-playwright")
-                # Try broader search
-                find_result2 = subprocess.run(
-                    ['find', '/root', '-name', 'chrome', '-type', 'f'],
+            # Check configured path first, then fallbacks
+            search_paths = [browser_path, '/app/.playwright-browsers', '/root/.cache/ms-playwright']
+            found = False
+            for search_path in search_paths:
+                if not os.path.exists(search_path):
+                    result["steps"].append(f"   Path {search_path} does not exist")
+                    continue
+
+                find_result = subprocess.run(
+                    ['find', search_path, '-name', 'chrome', '-type', 'f'],
                     capture_output=True, text=True, timeout=30
                 )
-                if find_result2.stdout:
-                    paths = find_result2.stdout.strip().split('\n')[:3]
+                if find_result.stdout:
+                    paths = find_result.stdout.strip().split('\n')[:3]
                     result["chromium_paths"] = paths
-                    result["steps"].append(f"   ✓ Found in /root: {paths[0] if paths else 'none'}")
+                    result["browser_found_in"] = search_path
+                    result["steps"].append(f"   ✓ Found in {search_path}: {paths[0] if paths else 'none'}")
+                    found = True
+                    break
                 else:
-                    result["steps"].append("   ✗ No chrome found anywhere in /root")
+                    result["steps"].append(f"   No chrome in {search_path}")
+
+            if not found:
+                result["steps"].append("   ✗ Chrome NOT found in any expected location!")
         except Exception as e:
             result["steps"].append(f"   ✗ Search failed: {e}")
 
@@ -415,7 +427,8 @@ async def health_check():
         "cloudinary": CLOUDINARY_CONFIGURED,
         "active_browsers": len(browser_pool.active_browsers),
         "active_tasks": len(active_tasks),
-        "code_version": "2024-01-12-v7-all-fixes"
+        "code_version": "2024-01-12-v8-fixed-browser-path",
+        "playwright_browsers_path": os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '/app/.playwright-browsers')
     }
 
     if redis_client:

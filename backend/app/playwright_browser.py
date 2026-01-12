@@ -137,16 +137,28 @@ class PlaywrightBrowser:
 
         # Check for chromium in correct location
         print("[BROWSER] Searching for Chromium...", flush=True)
-        try:
-            # Check /root/.cache/ms-playwright (where 'playwright install' puts it)
-            find_result = subprocess.run(['find', '/root/.cache/ms-playwright', '-name', 'chrome', '-type', 'f'],
-                                        capture_output=True, text=True, timeout=30)
-            if find_result.stdout:
-                print(f"[BROWSER] ✓ Found Chromium at: {find_result.stdout.strip()[:200]}", flush=True)
-            else:
-                print("[BROWSER] ✗ Chromium NOT found in /root/.cache/ms-playwright", flush=True)
-        except Exception as e:
-            print(f"[BROWSER] Could not search for Chromium: {e}", flush=True)
+        # Check PLAYWRIGHT_BROWSERS_PATH env var first, then default locations
+        browser_path = os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '/app/.playwright-browsers')
+        search_paths = [browser_path, '/app/.playwright-browsers', '/root/.cache/ms-playwright']
+
+        for search_path in search_paths:
+            try:
+                if not os.path.exists(search_path):
+                    print(f"[BROWSER] Path {search_path} does not exist, skipping...", flush=True)
+                    continue
+
+                print(f"[BROWSER] Checking {search_path}...", flush=True)
+                find_result = subprocess.run(['find', search_path, '-name', 'chrome', '-type', 'f'],
+                                            capture_output=True, text=True, timeout=30)
+                if find_result.stdout:
+                    print(f"[BROWSER] ✓ Found Chromium at: {find_result.stdout.strip()[:200]}", flush=True)
+                    break
+                else:
+                    print(f"[BROWSER] Chromium NOT found in {search_path}", flush=True)
+            except Exception as e:
+                print(f"[BROWSER] Could not search {search_path}: {e}", flush=True)
+        else:
+            print("[BROWSER] ✗ Chromium NOT found in any expected location!", flush=True)
 
         last_error = None
 
