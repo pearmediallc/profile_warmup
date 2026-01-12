@@ -233,7 +233,7 @@ async def debug_browser():
 
     print("[DEBUG] /debug/browser called", flush=True)
     result = {
-        "code_version": "2024-01-12-v5-chromium-fix",
+        "code_version": "2024-01-12-v6-fresh-install",
         "python_version": sys.version,
         "cwd": os.getcwd(),
         "playwright_version": None,
@@ -268,13 +268,13 @@ async def debug_browser():
 async def test_browser_launch():
     """
     Actually try to launch browser and return detailed diagnostic info.
-    This runs synchronously and returns full error details in the response.
+    Uses ASYNC Playwright API since we're in an async context.
     """
     import subprocess
-    from playwright.sync_api import sync_playwright
+    from playwright.async_api import async_playwright
 
     result = {
-        "code_version": "2024-01-12-v5-chromium-fix",
+        "code_version": "2024-01-12-v6-fresh-install",
         "steps": [],
         "success": False,
         "error": None,
@@ -298,10 +298,10 @@ async def test_browser_launch():
         except Exception as e:
             result["steps"].append(f"   ✗ Version check failed: {e}")
 
-        # Step 2: Find Chromium (check both possible locations)
+        # Step 2: Find Chromium (check multiple locations)
         result["steps"].append("2. Looking for Chromium executable...")
         try:
-            # First check /root/.cache/ms-playwright (where 'playwright install' puts it)
+            # Check /root/.cache/ms-playwright
             find_result = subprocess.run(
                 ['find', '/root/.cache/ms-playwright', '-name', 'chrome', '-type', 'f'],
                 capture_output=True, text=True, timeout=30
@@ -309,26 +309,26 @@ async def test_browser_launch():
             if find_result.stdout:
                 paths = find_result.stdout.strip().split('\n')[:3]
                 result["chromium_paths"] = paths
-                result["steps"].append(f"   ✓ Found in /root/.cache: {paths[0] if paths else 'none'}")
+                result["steps"].append(f"   ✓ Found: {paths[0] if paths else 'none'}")
             else:
                 result["steps"].append("   ✗ No chrome in /root/.cache/ms-playwright")
-                # Try /ms-playwright (base image location)
+                # Try broader search
                 find_result2 = subprocess.run(
-                    ['find', '/ms-playwright', '-name', 'chrome', '-type', 'f'],
+                    ['find', '/root', '-name', 'chrome', '-type', 'f'],
                     capture_output=True, text=True, timeout=30
                 )
                 if find_result2.stdout:
                     paths = find_result2.stdout.strip().split('\n')[:3]
                     result["chromium_paths"] = paths
-                    result["steps"].append(f"   ✓ Found in /ms-playwright: {paths[0] if paths else 'none'}")
+                    result["steps"].append(f"   ✓ Found in /root: {paths[0] if paths else 'none'}")
                 else:
-                    result["steps"].append("   ✗ No chrome in /ms-playwright either")
+                    result["steps"].append("   ✗ No chrome found anywhere in /root")
         except Exception as e:
             result["steps"].append(f"   ✗ Search failed: {e}")
 
-        # Step 3: Start Playwright
-        result["steps"].append("3. Starting Playwright sync_playwright()...")
-        playwright = sync_playwright().start()
+        # Step 3: Start Playwright (ASYNC API)
+        result["steps"].append("3. Starting Playwright async_playwright()...")
+        playwright = await async_playwright().start()
         result["steps"].append("   ✓ Playwright started")
 
         # Step 4: Launch browser
@@ -339,7 +339,7 @@ async def test_browser_launch():
             '--disable-gpu',
             '--disable-extensions',
         ]
-        browser = playwright.chromium.launch(
+        browser = await playwright.chromium.launch(
             headless=True,
             args=browser_args
         )
@@ -348,7 +348,7 @@ async def test_browser_launch():
 
         # Step 5: Create page
         result["steps"].append("5. Creating new page...")
-        page = browser.new_page(
+        page = await browser.new_page(
             viewport={'width': 1280, 'height': 720}
         )
         result["page_created"] = True
@@ -356,12 +356,12 @@ async def test_browser_launch():
 
         # Step 6: Navigate to test page
         result["steps"].append("6. Testing navigation to example.com...")
-        page.goto("https://example.com", timeout=30000)
+        await page.goto("https://example.com", timeout=30000)
         result["navigation_test"] = {
             "url": page.url,
-            "title": page.title()
+            "title": await page.title()
         }
-        result["steps"].append(f"   ✓ Navigated! Title: {page.title()}")
+        result["steps"].append(f"   ✓ Navigated! Title: {result['navigation_test']['title']}")
 
         result["success"] = True
         result["steps"].append("=== ALL TESTS PASSED ===")
@@ -378,13 +378,13 @@ async def test_browser_launch():
         result["steps"].append("7. Cleaning up...")
         try:
             if page:
-                page.close()
+                await page.close()
                 result["steps"].append("   ✓ Page closed")
             if browser:
-                browser.close()
+                await browser.close()
                 result["steps"].append("   ✓ Browser closed")
             if playwright:
-                playwright.stop()
+                await playwright.stop()
                 result["steps"].append("   ✓ Playwright stopped")
         except Exception as e:
             result["steps"].append(f"   Cleanup error: {e}")
@@ -415,7 +415,7 @@ async def health_check():
         "cloudinary": CLOUDINARY_CONFIGURED,
         "active_browsers": len(browser_pool.active_browsers),
         "active_tasks": len(active_tasks),
-        "code_version": "2024-01-12-v5-chromium-fix"
+        "code_version": "2024-01-12-v6-fresh-install"
     }
 
     if redis_client:

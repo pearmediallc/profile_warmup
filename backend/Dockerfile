@@ -1,29 +1,46 @@
-# Use official Playwright image - has browser dependencies pre-installed
-FROM mcr.microsoft.com/playwright/python:v1.40.0-jammy
+# Use plain Python image - more reliable than Playwright image
+FROM python:3.11-slim
 
-# Install curl for health check
-RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+# Install system dependencies for Chromium
+RUN apt-get update && apt-get install -y \
+    curl \
+    wget \
+    gnupg \
+    # Chromium dependencies
+    libnss3 \
+    libnspr4 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libdrm2 \
+    libdbus-1-3 \
+    libxkbcommon0 \
+    libatspi2.0-0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libasound2 \
+    libpango-1.0-0 \
+    libcairo2 \
+    && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
 WORKDIR /app
 
-# Copy requirements first (for caching)
+# Copy and install Python dependencies
 COPY requirements.txt .
-
-# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# CRITICAL: Install Chromium browser with all dependencies
-# --with-deps ensures all system libraries are installed
-RUN playwright install chromium --with-deps
+# Install Playwright browsers (this is the KEY step)
+RUN playwright install chromium
+RUN playwright install-deps chromium
 
-# Debug: Verify Chromium is installed (check both possible locations)
-RUN echo "=== Playwright Browser Info ===" && \
+# Verify installation - show where browser is
+RUN echo "=== Checking Playwright Installation ===" && \
     playwright --version && \
-    echo "Checking /root/.cache/ms-playwright:" && \
-    find /root/.cache/ms-playwright -name "chrome" -type f 2>/dev/null | head -3 || echo "Not in /root/.cache" && \
-    echo "Checking /ms-playwright:" && \
-    find /ms-playwright -name "chrome" -type f 2>/dev/null | head -3 || echo "Not in /ms-playwright"
+    echo "Browser location:" && \
+    find /root -name "chrome" -type f 2>/dev/null | head -5
 
 # Copy application code
 COPY . .
@@ -33,12 +50,9 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV RENDER=true
 
-# Expose port
 EXPOSE 8000
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Run the application
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
