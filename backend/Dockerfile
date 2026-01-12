@@ -2,18 +2,20 @@
 FROM python:3.11-slim
 
 # Cache buster - change this to force rebuild
-ARG CACHEBUST=11
+ARG CACHEBUST=12
 
 # Set Playwright browser path EARLY - must be set before playwright install
 # Using default path that Playwright expects
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0
 
-# Install system dependencies for Chromium
+# Install ALL system dependencies for Chromium manually
+# (playwright install-deps uses outdated package names for Debian trixie)
 RUN apt-get update && apt-get install -y \
     curl \
     wget \
     gnupg \
+    # Chromium core dependencies
     libnss3 \
     libnspr4 \
     libatk1.0-0 \
@@ -36,7 +38,22 @@ RUN apt-get update && apt-get install -y \
     libxcb1 \
     libxext6 \
     libxshmfence1 \
+    # Font packages (with correct names for Debian trixie)
     fonts-liberation \
+    fonts-unifont \
+    fonts-ipafont-gothic \
+    fonts-wqy-zenhei \
+    fonts-tlwg-loma-otf \
+    fonts-freefont-ttf \
+    # Additional dependencies Playwright may need
+    libglib2.0-0 \
+    libexpat1 \
+    libxcb-shm0 \
+    libx11-xcb1 \
+    libxcursor1 \
+    libxi6 \
+    libxtst6 \
+    xvfb \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -45,12 +62,10 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright browsers IMMEDIATELY after pip install
-# BEFORE copying app code so it can't be overwritten
+# Install Playwright Chromium browser only (skip install-deps - we installed deps above)
 RUN mkdir -p $PLAYWRIGHT_BROWSERS_PATH && \
     echo "Installing Playwright Chromium to $PLAYWRIGHT_BROWSERS_PATH..." && \
     playwright install chromium && \
-    playwright install-deps chromium && \
     echo "Browser installation complete!" && \
     echo "=== VERIFYING BROWSER INSTALLATION ===" && \
     find $PLAYWRIGHT_BROWSERS_PATH -name "chrome" -type f 2>/dev/null | head -5

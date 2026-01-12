@@ -6,30 +6,28 @@ FROM python:3.11-slim
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0
 
-# Install system dependencies for Chromium + Node.js
+# Install ALL system dependencies for Chromium + Node.js manually
+# (playwright install-deps uses outdated package names for Debian trixie)
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
     curl \
-    # Chromium dependencies
-    fonts-liberation \
-    libasound2 \
-    libatk-bridge2.0-0 \
-    libatk1.0-0 \
-    libatspi2.0-0 \
-    libcups2 \
-    libdbus-1-3 \
-    libdrm2 \
-    libgbm1 \
-    libgtk-3-0 \
-    libnspr4 \
+    # Chromium core dependencies
     libnss3 \
-    libwayland-client0 \
+    libnspr4 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libdrm2 \
+    libdbus-1-3 \
+    libxkbcommon0 \
+    libatspi2.0-0 \
     libxcomposite1 \
     libxdamage1 \
     libxfixes3 \
-    libxkbcommon0 \
     libxrandr2 \
+    libgbm1 \
+    libasound2 \
     libpango-1.0-0 \
     libcairo2 \
     libx11-6 \
@@ -37,7 +35,24 @@ RUN apt-get update && apt-get install -y \
     libxcb1 \
     libxext6 \
     libxshmfence1 \
+    libgtk-3-0 \
+    libwayland-client0 \
     xdg-utils \
+    # Font packages (with correct names for Debian trixie)
+    fonts-liberation \
+    fonts-unifont \
+    fonts-ipafont-gothic \
+    fonts-wqy-zenhei \
+    fonts-tlwg-loma-otf \
+    fonts-freefont-ttf \
+    # Additional dependencies
+    libglib2.0-0 \
+    libexpat1 \
+    libxcb-shm0 \
+    libxcursor1 \
+    libxi6 \
+    libxtst6 \
+    xvfb \
     # Node.js for frontend build
     nodejs \
     npm \
@@ -56,10 +71,9 @@ WORKDIR /app
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright browsers BEFORE copying code
+# Install Playwright Chromium only (skip install-deps - we installed deps above)
 RUN mkdir -p $PLAYWRIGHT_BROWSERS_PATH && \
-    playwright install chromium && \
-    playwright install-deps chromium
+    playwright install chromium
 
 # Copy backend code
 COPY backend/ .
