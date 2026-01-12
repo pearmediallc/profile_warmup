@@ -1,12 +1,15 @@
 """
 FastAPI Backend for Profile Warm-Up - Production Ready
+WITH COMPREHENSIVE LOGGING FOR DEBUGGING
 """
 
 import os
+import sys
 import logging
 import glob
 import json
 import asyncio
+import traceback
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from contextlib import asynccontextmanager
@@ -18,24 +21,58 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import redis
 
-from app.tasks import warmup_profile_task, SCREENSHOTS_DIR, screenshot_to_base64, CLOUDINARY_CONFIGURED, set_status_callback
-from app.playwright_browser import browser_pool
+# ============================================================
+# COMPREHENSIVE LOGGING SETUP
+# ============================================================
+print("=" * 60, flush=True)
+print("STARTING PROFILE WARMUP API", flush=True)
+print(f"Python version: {sys.version}", flush=True)
+print(f"Working directory: {os.getcwd()}", flush=True)
+print("=" * 60, flush=True)
 
-# Setup logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    level=logging.DEBUG,  # Changed to DEBUG for more detail
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)  # Explicitly use stdout
+    ]
 )
 logger = logging.getLogger(__name__)
+logger.info("Logger initialized")
 
-# Redis connection
+# ============================================================
+# IMPORT APP MODULES WITH ERROR HANDLING
+# ============================================================
+print("[STARTUP] Importing app modules...", flush=True)
+try:
+    from app.tasks import warmup_profile_task, SCREENSHOTS_DIR, screenshot_to_base64, CLOUDINARY_CONFIGURED, set_status_callback
+    print("[STARTUP] ✓ tasks module imported", flush=True)
+except Exception as e:
+    print(f"[STARTUP] ✗ Failed to import tasks: {e}", flush=True)
+    traceback.print_exc()
+    raise
+
+try:
+    from app.playwright_browser import browser_pool
+    print("[STARTUP] ✓ playwright_browser module imported", flush=True)
+except Exception as e:
+    print(f"[STARTUP] ✗ Failed to import playwright_browser: {e}", flush=True)
+    traceback.print_exc()
+    raise
+
+# ============================================================
+# REDIS CONNECTION
+# ============================================================
+print("[STARTUP] Connecting to Redis...", flush=True)
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 try:
     redis_client = redis.from_url(REDIS_URL)
     redis_client.ping()
     REDIS_AVAILABLE = True
+    print(f"[STARTUP] ✓ Redis connected: {REDIS_URL[:30]}...", flush=True)
     logger.info("Redis connected")
 except Exception as e:
+    print(f"[STARTUP] ✗ Redis not available: {e}", flush=True)
     logger.warning(f"Redis not available: {e}")
     REDIS_AVAILABLE = False
     redis_client = None
@@ -45,8 +82,9 @@ pubsub_client = None
 if REDIS_AVAILABLE:
     try:
         pubsub_client = redis.from_url(REDIS_URL)
-    except Exception:
-        pass
+        print("[STARTUP] ✓ Redis pub/sub client created", flush=True)
+    except Exception as e:
+        print(f"[STARTUP] ✗ Redis pub/sub failed: {e}", flush=True)
 
 
 # Background task for Redis pub/sub subscriber
@@ -68,35 +106,39 @@ async def redis_subscriber():
                 logger.debug(f"Broadcasting status: {data.get('status')}")
 
                 # Broadcast to all connected WebSocket clients
-                for connection in active_connections[:]:  # Use slice copy to avoid modification during iteration
+                for connection in active_connections[:]:
                     try:
                         await connection.send_json(data)
                     except Exception:
-                        # Remove dead connections
                         try:
                             active_connections.remove(connection)
                         except ValueError:
                             pass
 
-            await asyncio.sleep(0.1)  # Small delay to prevent busy loop
+            await asyncio.sleep(0.1)
 
         except Exception as e:
             logger.error(f"Redis subscriber error: {e}")
-            await asyncio.sleep(5)  # Wait before retry
+            await asyncio.sleep(5)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
+    print("[LIFESPAN] Application starting...", flush=True)
+
     # Start Redis subscriber in background
     subscriber_task = None
     if REDIS_AVAILABLE:
         subscriber_task = asyncio.create_task(redis_subscriber())
+        print("[LIFESPAN] ✓ Redis subscriber started", flush=True)
         logger.info("Redis subscriber started")
 
+    print("[LIFESPAN] ✓ Application ready to serve requests", flush=True)
     yield
 
     # Cleanup on shutdown
+    print("[LIFESPAN] Application shutting down...", flush=True)
     if subscriber_task:
         subscriber_task.cancel()
         try:
@@ -104,6 +146,7 @@ async def lifespan(app: FastAPI):
         except asyncio.CancelledError:
             pass
     browser_pool.cleanup_all()
+    print("[LIFESPAN] ✓ Shutdown complete", flush=True)
     logger.info("Shutdown complete")
 
 
@@ -125,18 +168,16 @@ cors_origins = [
     "http://127.0.0.1:8000",
 ]
 
-# Add frontend URL from environment (with correct default)
 frontend_url = os.getenv("FRONTEND_URL", "https://profile-warmup-frontend.onrender.com")
 if frontend_url:
     cors_origins.append(frontend_url)
 
-# Also allow any onrender.com subdomain for flexibility
 cors_origins.append("https://*.onrender.com")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
-    allow_origin_regex=r"https://.*\.onrender\.com",  # Regex for all Render subdomains
+    allow_origin_regex=r"https://.*\.onrender\.com",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -170,14 +211,57 @@ async def broadcast_message(message: dict):
             pass
 
 
-# Static files directory (for combined frontend+backend deployment)
+# Static files directory
 STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
 FRONTEND_AVAILABLE = os.path.exists(STATIC_DIR) and os.path.exists(os.path.join(STATIC_DIR, "index.html"))
 
 if FRONTEND_AVAILABLE:
-    # Mount static assets (js, css, etc.)
     app.mount("/assets", StaticFiles(directory=os.path.join(STATIC_DIR, "assets")), name="assets")
+    print(f"[STARTUP] ✓ Frontend static files mounted from {STATIC_DIR}", flush=True)
     logger.info(f"Frontend static files mounted from {STATIC_DIR}")
+else:
+    print(f"[STARTUP] ✗ No frontend found at {STATIC_DIR}", flush=True)
+
+
+# ============================================================
+# DEBUG ENDPOINT - Check browser installation
+# ============================================================
+@app.get("/debug/browser")
+async def debug_browser():
+    """Debug endpoint to test Playwright browser installation"""
+    import subprocess
+
+    print("[DEBUG] /debug/browser called", flush=True)
+    result = {
+        "code_version": "2024-01-12-v3-comprehensive-logging",
+        "python_version": sys.version,
+        "cwd": os.getcwd(),
+        "playwright_version": None,
+        "chromium_paths": [],
+        "env_render": os.environ.get("RENDER", "not set"),
+        "error": None
+    }
+
+    try:
+        # Check playwright version
+        pw_result = subprocess.run(['playwright', '--version'], capture_output=True, text=True, timeout=10)
+        result["playwright_version"] = pw_result.stdout.strip() if pw_result.stdout else pw_result.stderr.strip()
+        print(f"[DEBUG] Playwright version: {result['playwright_version']}", flush=True)
+
+        # Try to find chromium
+        find_result = subprocess.run(
+            ['find', '/ms-playwright', '-name', 'chrome', '-type', 'f'],
+            capture_output=True, text=True, timeout=30
+        )
+        if find_result.stdout:
+            result["chromium_paths"] = find_result.stdout.strip().split('\n')[:5]
+        print(f"[DEBUG] Chromium paths: {result['chromium_paths']}", flush=True)
+
+    except Exception as e:
+        result["error"] = str(e)
+        print(f"[DEBUG] Error: {e}", flush=True)
+
+    return result
 
 
 @app.get("/")
@@ -202,10 +286,10 @@ async def health_check():
         "redis": REDIS_AVAILABLE,
         "cloudinary": CLOUDINARY_CONFIGURED,
         "active_browsers": len(browser_pool.active_browsers),
-        "active_tasks": len(active_tasks)
+        "active_tasks": len(active_tasks),
+        "code_version": "2024-01-12-v3"
     }
 
-    # Check Redis
     if redis_client:
         try:
             redis_client.ping()
@@ -220,8 +304,6 @@ async def health_check():
 @app.get("/config")
 async def get_config():
     """Get warmup configuration"""
-    import sys
-    # Add backend directory to path (parent of app/)
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from config import WARM_UP_CONFIG
     return WARM_UP_CONFIG
@@ -232,27 +314,31 @@ async def websocket_endpoint(websocket: WebSocket):
     """WebSocket for real-time updates"""
     await websocket.accept()
     active_connections.append(websocket)
+    print(f"[WS] WebSocket connected. Total: {len(active_connections)}", flush=True)
     logger.info(f"WebSocket connected. Total: {len(active_connections)}")
 
     try:
         while True:
             data = await websocket.receive_text()
-            # Handle incoming messages if needed
     except WebSocketDisconnect:
         active_connections.remove(websocket)
+        print(f"[WS] WebSocket disconnected. Total: {len(active_connections)}", flush=True)
         logger.info(f"WebSocket disconnected. Total: {len(active_connections)}")
 
 
 @app.post("/warmup/start", response_model=WarmupResponse)
 async def start_warmup(profile: Profile, background_tasks: BackgroundTasks):
-    """
-    Start warm-up for a profile
-    Runs warmup task in background
-    """
+    """Start warm-up for a profile"""
     email = profile.email
+
+    print("=" * 60, flush=True)
+    print(f"[WARMUP] /warmup/start called for: {email}", flush=True)
+    print("=" * 60, flush=True)
+    logger.info(f"[WARMUP] Received warmup request for {email}")
 
     # Check if already running
     if email in active_tasks and active_tasks[email].get("status") == "running":
+        print(f"[WARMUP] ✗ Already running for {email}", flush=True)
         raise HTTPException(status_code=400, detail="Warmup already running for this profile")
 
     try:
@@ -260,9 +346,12 @@ async def start_warmup(profile: Profile, background_tasks: BackgroundTasks):
             "status": "running",
             "started_at": datetime.utcnow().isoformat()
         }
+        print(f"[WARMUP] Task registered for {email}", flush=True)
 
         # Run in background
+        print(f"[WARMUP] Adding background task for {email}", flush=True)
         background_tasks.add_task(run_warmup_direct, email, profile.password)
+        print(f"[WARMUP] ✓ Background task added for {email}", flush=True)
 
         await broadcast_message({
             "type": "status",
@@ -278,24 +367,33 @@ async def start_warmup(profile: Profile, background_tasks: BackgroundTasks):
         )
 
     except Exception as e:
+        print(f"[WARMUP] ✗ Failed to start warmup: {e}", flush=True)
+        traceback.print_exc()
         logger.error(f"Failed to start warmup: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 async def run_warmup_direct(email: str, password: str):
-    """
-    Run warmup in background thread
-    """
+    """Run warmup in background thread"""
+    print("=" * 60, flush=True)
+    print(f"[WARMUP-BG] Background task STARTED for {email}", flush=True)
+    print("=" * 60, flush=True)
+
     try:
         # Set up callback for status updates via WebSocket
+        print(f"[WARMUP-BG] Setting up status callback for {email}", flush=True)
         set_status_callback(email, lambda data: asyncio.create_task(broadcast_message(data)))
 
         # Run the task in a thread pool to not block the event loop
+        print(f"[WARMUP-BG] Getting event loop...", flush=True)
         loop = asyncio.get_event_loop()
+
+        print(f"[WARMUP-BG] Calling warmup_profile_task in executor...", flush=True)
         result = await loop.run_in_executor(
             None,
             lambda: warmup_profile_task(email, password)
         )
+        print(f"[WARMUP-BG] warmup_profile_task completed. Result: {result}", flush=True)
 
         await broadcast_message({
             "type": "complete",
@@ -306,6 +404,8 @@ async def run_warmup_direct(email: str, password: str):
         })
 
     except Exception as e:
+        print(f"[WARMUP-BG] ✗ ERROR in background task: {e}", flush=True)
+        traceback.print_exc()
         logger.error(f"Warmup error: {e}")
         await broadcast_message({
             "type": "error",
@@ -315,10 +415,11 @@ async def run_warmup_direct(email: str, password: str):
         })
 
     finally:
-        # Clear callback
+        print(f"[WARMUP-BG] Cleaning up for {email}", flush=True)
         set_status_callback(email, None)
         if email in active_tasks:
             del active_tasks[email]
+        print(f"[WARMUP-BG] Background task FINISHED for {email}", flush=True)
 
 
 @app.get("/warmup/status/{email}")
@@ -326,7 +427,6 @@ async def get_warmup_status(email: str):
     """Get status of a warmup task"""
     if email not in active_tasks:
         return {"status": "not_found", "profile": email}
-
     task_info = active_tasks[email]
     return {"status": task_info.get("status", "unknown"), "profile": email}
 
@@ -337,9 +437,7 @@ async def stop_warmup(email: str):
     if email not in active_tasks:
         raise HTTPException(status_code=404, detail="No active warmup for this profile")
 
-    # Cleanup browsers
     browser_pool.cleanup_all()
-
     del active_tasks[email]
 
     await broadcast_message({
@@ -364,10 +462,7 @@ async def list_tasks():
 
 @app.get("/screenshots/{email}")
 async def list_screenshots(email: str):
-    """
-    List all screenshots for a profile
-    Returns list of screenshot info with timestamps
-    """
+    """List all screenshots for a profile"""
     safe_email = email.split('@')[0].replace('.', '_')
     pattern = os.path.join(SCREENSHOTS_DIR, f"{safe_email}_*.png")
     files = glob.glob(pattern)
@@ -393,14 +488,9 @@ async def list_screenshots(email: str):
 
 @app.get("/screenshots/{email}/{filename}")
 async def get_screenshot(email: str, filename: str, format: str = "file"):
-    """
-    Get a specific screenshot
-    format=file: Return as file download
-    format=base64: Return as base64 encoded string
-    """
+    """Get a specific screenshot"""
     safe_email = email.split('@')[0].replace('.', '_')
 
-    # Security: Ensure filename belongs to this email
     if not filename.startswith(safe_email):
         raise HTTPException(status_code=403, detail="Access denied to this screenshot")
 
@@ -432,7 +522,6 @@ async def get_latest_screenshot(email: str):
     if not files:
         raise HTTPException(status_code=404, detail="No screenshots found for this profile")
 
-    # Get most recent file
     latest = max(files, key=os.path.getmtime)
     filename = os.path.basename(latest)
     base64_data = screenshot_to_base64(latest)
@@ -465,6 +554,9 @@ async def delete_screenshots(email: str):
         "deleted_count": deleted
     }
 
+
+print("[STARTUP] ✓ All routes registered", flush=True)
+print("[STARTUP] ✓ Application module loaded successfully", flush=True)
 
 if __name__ == "__main__":
     import uvicorn

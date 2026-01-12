@@ -4,9 +4,11 @@ Playwright Browser Manager for Profile Warmup
 - Built-in human-like behavior
 - Better stealth (harder to detect as bot)
 - Works on Mac, Linux, Docker, Cloud
+WITH COMPREHENSIVE LOGGING
 """
 
 import logging
+import sys
 import time
 import random
 import platform
@@ -15,8 +17,15 @@ import subprocess
 from typing import Optional, Dict, Any
 from contextlib import contextmanager
 
+print("[PLAYWRIGHT] Loading playwright_browser module...", flush=True)
+
 # Playwright imports
-from playwright.sync_api import sync_playwright, Page, Browser, Playwright
+try:
+    from playwright.sync_api import sync_playwright, Page, Browser, Playwright
+    print("[PLAYWRIGHT] ✓ Playwright imports successful", flush=True)
+except Exception as e:
+    print(f"[PLAYWRIGHT] ✗ Failed to import Playwright: {e}", flush=True)
+    raise
 
 logger = logging.getLogger(__name__)
 
@@ -108,33 +117,58 @@ class PlaywrightBrowser:
 
     def start(self, max_retries: int = 3):
         """Start the browser with retry logic"""
+        print("[BROWSER] ========================================", flush=True)
+        print("[BROWSER] Starting browser...", flush=True)
+        print(f"[BROWSER] Headless mode: {self.headless}", flush=True)
+        print(f"[BROWSER] Platform: {platform.system()}", flush=True)
+        print(f"[BROWSER] IS_DOCKER: {IS_DOCKER}", flush=True)
+        print("[BROWSER] ========================================", flush=True)
+
         cleanup_browser_processes()
 
         # Debug: Log browser path info
+        print("[BROWSER] Checking Playwright installation...", flush=True)
         try:
-            import subprocess
-            result = subprocess.run(['playwright', 'install', '--dry-run', 'chromium'],
+            result = subprocess.run(['playwright', '--version'],
                                    capture_output=True, text=True, timeout=10)
-            logger.info(f"Playwright browser check: {result.stdout[:200] if result.stdout else 'OK'}")
+            print(f"[BROWSER] Playwright version: {result.stdout.strip() if result.stdout else result.stderr.strip()}", flush=True)
         except Exception as e:
-            logger.warning(f"Could not check Playwright browsers: {e}")
+            print(f"[BROWSER] ✗ Could not get Playwright version: {e}", flush=True)
+
+        # Check for chromium
+        print("[BROWSER] Searching for Chromium...", flush=True)
+        try:
+            find_result = subprocess.run(['find', '/ms-playwright', '-name', 'chrome', '-type', 'f'],
+                                        capture_output=True, text=True, timeout=30)
+            if find_result.stdout:
+                print(f"[BROWSER] ✓ Found Chromium at: {find_result.stdout.strip()[:200]}", flush=True)
+            else:
+                print("[BROWSER] ✗ Chromium NOT found in /ms-playwright", flush=True)
+        except Exception as e:
+            print(f"[BROWSER] Could not search for Chromium: {e}", flush=True)
 
         last_error = None
 
         for attempt in range(max_retries):
             try:
+                print(f"[BROWSER] Starting Playwright browser (attempt {attempt + 1}/{max_retries})...", flush=True)
                 logger.info(f"Starting Playwright browser (attempt {attempt + 1}/{max_retries})...")
 
+                print("[BROWSER] Calling sync_playwright().start()...", flush=True)
                 self.playwright = sync_playwright().start()
+                print("[BROWSER] ✓ Playwright started", flush=True)
                 self.start_time = time.time()
 
                 # Launch browser
+                print("[BROWSER] Launching Chromium...", flush=True)
                 self.browser = self.playwright.chromium.launch(
                     headless=self.headless,
                     args=get_browser_args(),
                 )
+                print("[BROWSER] ✓ Chromium launched successfully!", flush=True)
 
                 # Create page with realistic settings
+                print("[BROWSER] Creating new page...", flush=True)
                 self.page = self.browser.new_page(
                     viewport={'width': 1280, 'height': 720},
                     user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -162,11 +196,16 @@ class PlaywrightBrowser:
                     });
                 """)
 
+                print("[BROWSER] ✓ Page created successfully!", flush=True)
+                print("[BROWSER] ========================================", flush=True)
+                print("[BROWSER] BROWSER READY TO USE", flush=True)
+                print("[BROWSER] ========================================", flush=True)
                 logger.info("Playwright browser started successfully")
                 return self.page
 
             except Exception as e:
                 last_error = e
+                print(f"[BROWSER] ✗ Attempt {attempt + 1} FAILED: {e}", flush=True)
                 logger.warning(f"Browser start attempt {attempt + 1} failed: {e}")
 
                 # Cleanup before retry
