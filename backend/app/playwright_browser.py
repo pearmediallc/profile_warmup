@@ -38,6 +38,42 @@ PAGE_LOAD_TIMEOUT = 60000  # 60 seconds in milliseconds
 IS_DOCKER = os.path.exists('/.dockerenv') or os.environ.get('RENDER', False) or os.environ.get('DOCKER', False)
 
 
+def find_chrome_executable() -> Optional[str]:
+    """
+    Find the Chrome executable path explicitly.
+    This ensures we find the browser regardless of PLAYWRIGHT_BROWSERS_PATH env var.
+    """
+    # Search paths in order of preference
+    search_paths = [
+        os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '/app/.playwright-browsers'),
+        '/app/.playwright-browsers',
+        '/root/.cache/ms-playwright',
+        '/home/.cache/ms-playwright',
+    ]
+
+    for base_path in search_paths:
+        if not os.path.exists(base_path):
+            continue
+
+        try:
+            # Find chrome executable
+            result = subprocess.run(
+                ['find', base_path, '-name', 'chrome', '-type', 'f'],
+                capture_output=True, text=True, timeout=30
+            )
+            if result.stdout:
+                paths = result.stdout.strip().split('\n')
+                for path in paths:
+                    if path and os.path.isfile(path) and os.access(path, os.X_OK):
+                        print(f"[BROWSER] Found executable Chrome at: {path}", flush=True)
+                        return path
+        except Exception as e:
+            print(f"[BROWSER] Error searching {base_path}: {e}", flush=True)
+
+    print("[BROWSER] ✗ Could not find Chrome executable!", flush=True)
+    return None
+
+
 def cleanup_browser_processes():
     """Kill orphaned browser processes to free memory"""
     try:
@@ -172,12 +208,24 @@ class PlaywrightBrowser:
                 print("[BROWSER] ✓ Playwright started", flush=True)
                 self.start_time = time.time()
 
-                # Launch browser
+                # Find Chrome executable explicitly
+                chrome_path = find_chrome_executable()
+
+                # Launch browser with explicit path if found
                 print("[BROWSER] Launching Chromium...", flush=True)
-                self.browser = self.playwright.chromium.launch(
-                    headless=self.headless,
-                    args=get_browser_args(),
-                )
+                launch_options = {
+                    'headless': self.headless,
+                    'args': get_browser_args(),
+                }
+
+                # Use explicit executable path if we found one
+                if chrome_path:
+                    print(f"[BROWSER] Using explicit executable_path: {chrome_path}", flush=True)
+                    launch_options['executable_path'] = chrome_path
+                else:
+                    print("[BROWSER] No explicit path, using Playwright default...", flush=True)
+
+                self.browser = self.playwright.chromium.launch(**launch_options)
                 print("[BROWSER] ✓ Chromium launched successfully!", flush=True)
 
                 # Create page with realistic settings

@@ -234,7 +234,7 @@ async def debug_browser():
     print("[DEBUG] /debug/browser called", flush=True)
     browser_path = os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '/app/.playwright-browsers')
     result = {
-        "code_version": "2024-01-12-v8-fixed-browser-path",
+        "code_version": "2024-01-12-v9-explicit-chrome-path",
         "python_version": sys.version,
         "cwd": os.getcwd(),
         "playwright_version": None,
@@ -282,7 +282,7 @@ async def test_browser_launch():
 
     browser_path = os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '/app/.playwright-browsers')
     result = {
-        "code_version": "2024-01-12-v8-fixed-browser-path",
+        "code_version": "2024-01-12-v9-explicit-chrome-path",
         "playwright_browsers_path": browser_path,
         "steps": [],
         "success": False,
@@ -427,7 +427,7 @@ async def health_check():
         "cloudinary": CLOUDINARY_CONFIGURED,
         "active_browsers": len(browser_pool.active_browsers),
         "active_tasks": len(active_tasks),
-        "code_version": "2024-01-12-v8-fixed-browser-path",
+        "code_version": "2024-01-12-v9-explicit-chrome-path",
         "playwright_browsers_path": os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '/app/.playwright-browsers')
     }
 
