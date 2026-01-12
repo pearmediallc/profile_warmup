@@ -1,0 +1,33 @@
+# Playwright browser cache - don't copy from local machine
+.playwright*
+.playwright-browsers/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# Git
+.git/
+.gitignore
+
+# Logs
+*.log
+logs/
+
+# Local screenshots
+screenshots/
+
+# Environment files (use Render env vars instead)
+.env
+.env.local

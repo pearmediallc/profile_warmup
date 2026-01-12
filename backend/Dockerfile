@@ -2,7 +2,7 @@
 FROM python:3.11-slim
 
 # Cache buster - change this to force rebuild
-ARG CACHEBUST=9
+ARG CACHEBUST=10
 
 # Set Playwright browser path to a fixed location INSIDE /app
 # This ensures browsers are found regardless of user/home directory
@@ -40,12 +40,16 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Copy and install Python dependencies
+# Copy and install Python dependencies FIRST
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright browsers to the fixed path
-# PLAYWRIGHT_BROWSERS_PATH is already set above
+# Copy application code BEFORE browser install
+# This way browser install happens AFTER and can't be overwritten
+COPY . .
+
+# Install Playwright browsers LAST (after COPY . .)
+# This ensures browsers are always installed fresh and not overwritten
 RUN echo "Installing Playwright Chromium to $PLAYWRIGHT_BROWSERS_PATH..." && \
     playwright install chromium && \
     playwright install-deps chromium && \
@@ -65,10 +69,7 @@ RUN echo "=== VERIFYING BROWSER INSTALLATION ===" && \
         ls -la "$CHROME_PATH"; \
     fi
 
-# Copy application code
-COPY . .
-
-# Environment variables (PLAYWRIGHT_BROWSERS_PATH already set above)
+# Environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV RENDER=true
