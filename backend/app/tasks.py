@@ -141,6 +141,45 @@ def screenshot_to_base64(filepath: str) -> Optional[str]:
 from config import WARM_UP_CONFIG
 from config.selectors import LOGIN_SELECTORS, LIKE_SELECTORS, FRIEND_SELECTORS, LOGOUT_SELECTORS, HOME_SELECTORS
 
+# Main Facebook feed URL - always redirect here if navigated away
+FACEBOOK_FEED_URL = "https://www.facebook.com/"
+
+
+def ensure_on_feed(driver) -> bool:
+    """
+    Check if we're on the main Facebook feed, redirect if not.
+    Returns True if we had to redirect, False if already on feed.
+    """
+    try:
+        current_url = driver.current_url.lower()
+
+        # Check if we're on the main feed
+        # Allow: facebook.com/ or facebook.com (with optional query params like ?sk=h_chr)
+        is_on_feed = (
+            current_url == "https://www.facebook.com/" or
+            current_url == "https://www.facebook.com" or
+            current_url.startswith("https://www.facebook.com/?") or
+            current_url.startswith("https://www.facebook.com/#")
+        )
+
+        if not is_on_feed:
+            logger.info(f"Not on feed ({current_url}), redirecting to main feed...")
+            driver.get(FACEBOOK_FEED_URL)
+            human_delay(2, 4)
+            return True
+
+        return False
+
+    except Exception as e:
+        logger.warning(f"Error checking URL: {e}")
+        # Try to redirect anyway
+        try:
+            driver.get(FACEBOOK_FEED_URL)
+            human_delay(2, 4)
+        except:
+            pass
+        return True
+
 
 def warmup_profile_task(email: str, password: str) -> Dict[str, Any]:
     """

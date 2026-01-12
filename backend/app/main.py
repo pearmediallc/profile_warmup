@@ -233,7 +233,7 @@ async def debug_browser():
 
     print("[DEBUG] /debug/browser called", flush=True)
     result = {
-        "code_version": "2024-01-12-v4-test-browser",
+        "code_version": "2024-01-12-v5-chromium-fix",
         "python_version": sys.version,
         "cwd": os.getcwd(),
         "playwright_version": None,
@@ -274,7 +274,7 @@ async def test_browser_launch():
     from playwright.sync_api import sync_playwright
 
     result = {
-        "code_version": "2024-01-12-v4-test-browser",
+        "code_version": "2024-01-12-v5-chromium-fix",
         "steps": [],
         "success": False,
         "error": None,
@@ -298,27 +298,31 @@ async def test_browser_launch():
         except Exception as e:
             result["steps"].append(f"   ✗ Version check failed: {e}")
 
-        # Step 2: Find Chromium
+        # Step 2: Find Chromium (check both possible locations)
         result["steps"].append("2. Looking for Chromium executable...")
         try:
+            # First check /root/.cache/ms-playwright (where 'playwright install' puts it)
             find_result = subprocess.run(
-                ['find', '/ms-playwright', '-name', 'chrome', '-type', 'f'],
+                ['find', '/root/.cache/ms-playwright', '-name', 'chrome', '-type', 'f'],
                 capture_output=True, text=True, timeout=30
             )
             if find_result.stdout:
                 paths = find_result.stdout.strip().split('\n')[:3]
                 result["chromium_paths"] = paths
-                result["steps"].append(f"   ✓ Found: {paths[0] if paths else 'none'}")
+                result["steps"].append(f"   ✓ Found in /root/.cache: {paths[0] if paths else 'none'}")
             else:
-                result["steps"].append("   ✗ No chrome executable found in /ms-playwright")
-                # Try alternative location
+                result["steps"].append("   ✗ No chrome in /root/.cache/ms-playwright")
+                # Try /ms-playwright (base image location)
                 find_result2 = subprocess.run(
-                    ['find', '/', '-name', 'chrome', '-type', 'f', '-path', '*playwright*'],
-                    capture_output=True, text=True, timeout=60
+                    ['find', '/ms-playwright', '-name', 'chrome', '-type', 'f'],
+                    capture_output=True, text=True, timeout=30
                 )
                 if find_result2.stdout:
-                    result["chromium_paths_alt"] = find_result2.stdout.strip().split('\n')[:3]
-                    result["steps"].append(f"   Found in alt location: {result['chromium_paths_alt']}")
+                    paths = find_result2.stdout.strip().split('\n')[:3]
+                    result["chromium_paths"] = paths
+                    result["steps"].append(f"   ✓ Found in /ms-playwright: {paths[0] if paths else 'none'}")
+                else:
+                    result["steps"].append("   ✗ No chrome in /ms-playwright either")
         except Exception as e:
             result["steps"].append(f"   ✗ Search failed: {e}")
 
@@ -411,7 +415,7 @@ async def health_check():
         "cloudinary": CLOUDINARY_CONFIGURED,
         "active_browsers": len(browser_pool.active_browsers),
         "active_tasks": len(active_tasks),
-        "code_version": "2024-01-12-v4-test-browser"
+        "code_version": "2024-01-12-v5-chromium-fix"
     }
 
     if redis_client:

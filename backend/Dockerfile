@@ -13,14 +13,17 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# EXPLICITLY install Playwright Chromium browser
-# The base image has dependencies, but browser needs explicit install
-RUN playwright install chromium
+# CRITICAL: Install Chromium browser with all dependencies
+# --with-deps ensures all system libraries are installed
+RUN playwright install chromium --with-deps
 
-# Debug: Show where Chromium is installed
+# Debug: Verify Chromium is installed (check both possible locations)
 RUN echo "=== Playwright Browser Info ===" && \
     playwright --version && \
-    find /ms-playwright -name "chrome" -o -name "chromium" 2>/dev/null | head -5 || true
+    echo "Checking /root/.cache/ms-playwright:" && \
+    find /root/.cache/ms-playwright -name "chrome" -type f 2>/dev/null | head -3 || echo "Not in /root/.cache" && \
+    echo "Checking /ms-playwright:" && \
+    find /ms-playwright -name "chrome" -type f 2>/dev/null | head -3 || echo "Not in /ms-playwright"
 
 # Copy application code
 COPY . .
