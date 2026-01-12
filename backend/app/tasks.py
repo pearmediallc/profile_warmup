@@ -183,54 +183,98 @@ def ensure_on_feed(driver) -> bool:
         return True
 
 
+def select_session_profile() -> tuple:
+    """
+    Randomly select a session profile based on weights.
+    Returns (profile_name, profile_config)
+
+    SESSION PROFILES:
+    - very_short (10%): 2-4 min total - quick check
+    - quick (25%):      4-8 min total - brief session
+    - normal (45%):     8-16 min total - typical browsing
+    - long (20%):       14-26 min total - extended session
+    """
+    profiles = WARM_UP_CONFIG.get('session_profiles', {})
+    if not profiles:
+        # Fallback to default timing
+        return ('default', {
+            'scroll_minutes': (WARM_UP_CONFIG.get('min_duration_minutes', 5),
+                              WARM_UP_CONFIG.get('max_duration_minutes', 10)),
+            'logout_delay_minutes': (WARM_UP_CONFIG.get('min_logout_delay_minutes', 2),
+                                    WARM_UP_CONFIG.get('max_logout_delay_minutes', 5)),
+            'friend_probability': WARM_UP_CONFIG.get('friend_suggestions_probability', 0.7),
+            'max_likes': WARM_UP_CONFIG.get('max_likes', 8),
+            'description': 'Default session'
+        })
+
+    # Build weighted selection
+    names = list(profiles.keys())
+    weights = [profiles[name].get('weight', 25) for name in names]
+
+    # Select profile
+    selected_name = random.choices(names, weights=weights)[0]
+    return (selected_name, profiles[selected_name])
+
+
 def warmup_profile_task(email: str, password: str) -> Dict[str, Any]:
     """
     Run warmup for a profile using Playwright (low memory)
 
-    TIMING BREAKDOWN (all random within ranges from config):
+    SESSION PROFILES (randomly selected each time):
     --------------------------------------------------------
-    1. Login: ~10-20 seconds
-    2. Main scrolling/liking: 5-10 minutes (from min/max_duration_minutes)
-    3. Friend suggestions: 1-5 minutes (depends on requests sent)
-    4. Pre-logout delay: 3-7 minutes (from min/max_logout_delay_minutes)
-    5. Logout: ~5-10 seconds
+    • very_short (10%): 2-4 min total - quick check
+    • quick (25%):      4-8 min total - brief session
+    • normal (45%):     8-16 min total - typical browsing
+    • long (20%):       14-26 min total - extended session
     --------------------------------------------------------
-    TOTAL: approximately 10-25 minutes per profile
+    Each session randomly varies: scrolling time, logout delay, friend visits
     """
     stats = {
         "status": "started",
         "email": email,
         "likes": 0,
-        "liked_posts": [],  # Detailed info about each liked post
+        "liked_posts": [],
         "friend_requests": 0,
-        "friends_requested": [],  # Detailed info about each friend requested
+        "friends_requested": [],
         "scroll_count": 0,
         "duration_seconds": 0,
-        "timing": {}  # Timing breakdown
+        "timing": {},
+        "session_profile": None
     }
 
     start_time = time.time()
 
-    # Get timing config
-    min_duration = WARM_UP_CONFIG.get('min_duration_minutes', 5)
-    max_duration = WARM_UP_CONFIG.get('max_duration_minutes', 10)
-    min_logout_delay = WARM_UP_CONFIG.get('min_logout_delay_minutes', 3)
-    max_logout_delay = WARM_UP_CONFIG.get('max_logout_delay_minutes', 7)
+    # ==================== RANDOMLY SELECT SESSION PROFILE ====================
+    profile_name, profile_config = select_session_profile()
+    stats["session_profile"] = profile_name
+
+    # Extract timing from selected profile
+    scroll_min, scroll_max = profile_config.get('scroll_minutes', (5, 10))
+    logout_min, logout_max = profile_config.get('logout_delay_minutes', (2, 5))
+    friend_probability = profile_config.get('friend_probability', 0.7)
+    max_likes_for_session = profile_config.get('max_likes', 8)
+    description = profile_config.get('description', 'Session')
+
+    # Calculate estimated total time
+    min_total = scroll_min + logout_min
+    max_total = scroll_max + logout_max + (3 if friend_probability > 0.5 else 0)
 
     print("\n" + "="*60, flush=True)
     print(f"🚀 STARTING WARMUP FOR: {email}", flush=True)
     print("="*60, flush=True)
-    print(f"📋 TIMING PLAN:", flush=True)
-    print(f"   • Scrolling/Liking phase: {min_duration}-{max_duration} minutes (random)", flush=True)
-    print(f"   • Friend suggestions: ~1-5 minutes", flush=True)
-    print(f"   • Pre-logout delay: {min_logout_delay}-{max_logout_delay} minutes (random)", flush=True)
-    print(f"   • TOTAL ESTIMATED: {min_duration + min_logout_delay}-{max_duration + max_logout_delay + 5} minutes", flush=True)
+    print(f"🎲 SESSION TYPE: {profile_name.upper()}", flush=True)
+    print(f"   {description}", flush=True)
+    print(f"📋 TIMING PLAN (all random):", flush=True)
+    print(f"   • Scrolling/Liking: {scroll_min}-{scroll_max} min", flush=True)
+    print(f"   • Friend suggestions: {int(friend_probability*100)}% chance to visit", flush=True)
+    print(f"   • Pre-logout delay: {logout_min}-{logout_max} min", flush=True)
+    print(f"   • Max likes this session: {max_likes_for_session}", flush=True)
+    print(f"   • ESTIMATED TOTAL: {min_total:.0f}-{max_total:.0f} minutes", flush=True)
     print("="*60 + "\n", flush=True)
 
     try:
-        broadcast_status(email, "starting", "Starting browser...")
+        broadcast_status(email, "starting", f"Starting {profile_name} session...")
 
-        # headless=True for server (Render), saves memory
         with browser_session(headless=True) as driver:
             broadcast_status(email, "browser_ready", "Browser launched, navigating to Facebook...")
 
@@ -250,20 +294,23 @@ def warmup_profile_task(email: str, password: str) -> Dict[str, Any]:
 
             print(f"✅ LOGIN SUCCESSFUL (took {stats['timing']['login_seconds']}s)", flush=True)
             stats["status"] = "logged_in"
-            broadcast_status(email, "logged_in", "Login successful! Starting warmup activities...")
+            broadcast_status(email, "logged_in", f"Login OK! Starting {profile_name} warmup...")
 
             # ==================== SCROLLING/LIKING PHASE ====================
-            session_duration = random.uniform(min_duration * 60, max_duration * 60)
+            # Random duration within profile's range
+            session_duration = random.uniform(scroll_min * 60, scroll_max * 60)
             session_end = time.time() + session_duration
             stats["timing"]["planned_scroll_duration_minutes"] = round(session_duration / 60, 1)
 
-            print(f"\n📜 SCROLLING PHASE: {stats['timing']['planned_scroll_duration_minutes']} minutes", flush=True)
+            print(f"\n📜 SCROLLING PHASE: {stats['timing']['planned_scroll_duration_minutes']:.1f} minutes", flush=True)
             broadcast_status(email, "warmup_started",
-                           f"Scrolling/Liking for {stats['timing']['planned_scroll_duration_minutes']:.1f} minutes",
-                           duration_minutes=stats["timing"]["planned_scroll_duration_minutes"])
+                           f"[{profile_name.upper()}] Scrolling for {stats['timing']['planned_scroll_duration_minutes']:.1f} min",
+                           duration_minutes=stats["timing"]["planned_scroll_duration_minutes"],
+                           session_type=profile_name)
 
             scroll_start = time.time()
             last_broadcast = time.time()
+            likes_this_session = 0
 
             while time.time() < session_end:
                 try:
@@ -280,13 +327,14 @@ def warmup_profile_task(email: str, password: str) -> Dict[str, Any]:
                         scroll_page(driver, scroll_amount)
                         stats["scroll_count"] += 1
 
-                    elif action == "like":
+                    elif action == "like" and likes_this_session < max_likes_for_session:
                         post_info = like_post(driver, email)
                         if post_info:
                             stats["likes"] += 1
+                            likes_this_session += 1
                             stats["liked_posts"].append(post_info)
                             broadcast_status(email, "liked",
-                                           f"Liked post by {post_info['author']} (total: {stats['likes']})",
+                                           f"Liked post by {post_info['author']} ({likes_this_session}/{max_likes_for_session})",
                                            likes=stats["likes"], post_author=post_info["author"])
 
                     elif action == "pause":
@@ -298,8 +346,8 @@ def warmup_profile_task(email: str, password: str) -> Dict[str, Any]:
                     if time.time() - last_broadcast > 30:
                         remaining = max(0, session_end - time.time())
                         elapsed = time.time() - scroll_start
-                        print(f"⏱️  Progress: {elapsed/60:.1f}min elapsed, {remaining/60:.1f}min remaining | "
-                              f"Scrolls: {stats['scroll_count']}, Likes: {stats['likes']}", flush=True)
+                        print(f"⏱️  Progress: {elapsed/60:.1f}min elapsed, {remaining/60:.1f}min left | "
+                              f"Scrolls: {stats['scroll_count']}, Likes: {likes_this_session}/{max_likes_for_session}", flush=True)
                         broadcast_status(email, "in_progress",
                                        f"{stats['scroll_count']} scrolls, {stats['likes']} likes, {remaining/60:.1f} min left",
                                        scrolls=stats["scroll_count"], likes=stats["likes"],
@@ -314,9 +362,10 @@ def warmup_profile_task(email: str, password: str) -> Dict[str, Any]:
             print(f"✅ SCROLLING COMPLETE: {stats['scroll_count']} scrolls, {stats['likes']} likes", flush=True)
 
             # ==================== FRIEND SUGGESTIONS PHASE ====================
-            if random.random() < WARM_UP_CONFIG.get('friend_suggestions_probability', 0.8):
+            # Use profile-specific friend probability
+            if random.random() < friend_probability:
                 try:
-                    print(f"\n👥 FRIEND SUGGESTIONS PHASE", flush=True)
+                    print(f"\n👥 FRIEND SUGGESTIONS PHASE (probability was {int(friend_probability*100)}%)", flush=True)
                     broadcast_status(email, "friend_suggestions", "Visiting friend suggestions...")
 
                     friend_start = time.time()
@@ -335,15 +384,18 @@ def warmup_profile_task(email: str, password: str) -> Dict[str, Any]:
                 except Exception as e:
                     logger.warning(f"Friend suggestions error: {e}")
                     traceback.print_exc()
+            else:
+                print(f"\n👥 SKIPPING friend suggestions (probability was {int(friend_probability*100)}%)", flush=True)
 
             # ==================== PRE-LOGOUT DELAY PHASE ====================
-            logout_delay = random.uniform(min_logout_delay * 60, max_logout_delay * 60)
+            # Random delay within profile's range
+            logout_delay = random.uniform(logout_min * 60, logout_max * 60)
             stats["timing"]["planned_logout_delay_minutes"] = round(logout_delay / 60, 1)
 
             print(f"\n⏳ PRE-LOGOUT DELAY: {stats['timing']['planned_logout_delay_minutes']:.1f} minutes", flush=True)
             print(f"   (Light scrolling while waiting...)", flush=True)
             broadcast_status(email, "pre_logout",
-                           f"Waiting {stats['timing']['planned_logout_delay_minutes']:.1f} minutes before logout...",
+                           f"Waiting {stats['timing']['planned_logout_delay_minutes']:.1f} min before logout...",
                            logout_delay_minutes=stats["timing"]["planned_logout_delay_minutes"])
 
             delay_start = time.time()
@@ -380,6 +432,7 @@ def warmup_profile_task(email: str, password: str) -> Dict[str, Any]:
         print(f"🏁 WARMUP COMPLETE FOR: {email}", flush=True)
         print("="*60, flush=True)
         print(f"📊 FINAL STATS:", flush=True)
+        print(f"   • Session Type: {profile_name.upper()}", flush=True)
         print(f"   • Status: {stats['status'].upper()}", flush=True)
         print(f"   • Total Duration: {stats['timing']['total_minutes']} minutes", flush=True)
         print(f"   • Scrolls: {stats['scroll_count']}", flush=True)
@@ -392,8 +445,8 @@ def warmup_profile_task(email: str, password: str) -> Dict[str, Any]:
         print("="*60 + "\n", flush=True)
 
         broadcast_status(email, "completed" if stats["status"] == "completed" else stats["status"],
-                        f"Warmup {'completed' if stats['status'] == 'completed' else 'failed'} - "
-                        f"{stats['timing']['total_minutes']} min, {stats['likes']} likes, {stats['friend_requests']} friends",
+                        f"[{profile_name.upper()}] {stats['timing']['total_minutes']} min, "
+                        f"{stats['likes']} likes, {stats['friend_requests']} friends",
                         stats=stats)
 
     return stats

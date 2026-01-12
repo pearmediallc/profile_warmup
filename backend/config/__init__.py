@@ -8,13 +8,52 @@ Profile Warm-Up Configuration Package
 WARM_UP_CONFIG = {
     'enabled': True,
 
-    # Session duration (in minutes)
-    'min_duration_minutes': 5,
-    'max_duration_minutes': 10,
+    # ==========================================================================
+    # SESSION PROFILES - Randomly selected for each warmup
+    # Makes total session time highly variable (5-20+ minutes)
+    # ==========================================================================
+    'session_profiles': {
+        'quick': {
+            'weight': 25,  # 25% chance
+            'scroll_minutes': (3, 5),      # 3-5 min scrolling
+            'logout_delay_minutes': (1, 2), # 1-2 min before logout
+            'friend_probability': 0.3,      # 30% chance to visit friends
+            'max_likes': 3,
+            'description': 'Quick check-in session'
+        },
+        'normal': {
+            'weight': 45,  # 45% chance
+            'scroll_minutes': (5, 10),      # 5-10 min scrolling
+            'logout_delay_minutes': (2, 5), # 2-5 min before logout
+            'friend_probability': 0.7,      # 70% chance to visit friends
+            'max_likes': 6,
+            'description': 'Normal browsing session'
+        },
+        'long': {
+            'weight': 20,  # 20% chance
+            'scroll_minutes': (10, 18),     # 10-18 min scrolling
+            'logout_delay_minutes': (3, 7), # 3-7 min before logout
+            'friend_probability': 0.9,      # 90% chance to visit friends
+            'max_likes': 10,
+            'description': 'Extended browsing session'
+        },
+        'very_short': {
+            'weight': 10,  # 10% chance
+            'scroll_minutes': (1, 3),       # 1-3 min scrolling (just checking)
+            'logout_delay_minutes': (0.5, 1), # 30s-1min before logout
+            'friend_probability': 0.1,      # 10% chance to visit friends
+            'max_likes': 2,
+            'description': 'Very brief check'
+        },
+    },
+
+    # Fallback values (used if session profiles disabled)
+    'min_duration_minutes': 3,
+    'max_duration_minutes': 18,
 
     # Like actions
-    'min_likes': 3,
-    'max_likes': 8,
+    'min_likes': 1,
+    'max_likes': 10,
     'like_probability': 0.7,  # 70% chance to like when action chosen
     'min_time_between_likes': 30,  # seconds
     'max_time_between_likes': 90,  # seconds
@@ -28,11 +67,11 @@ WARM_UP_CONFIG = {
     'max_comments_per_session': 5,  # safety limit
 
     # Friend requests
-    'min_friend_requests': 1,         # minimum friend requests per session
+    'min_friend_requests': 0,         # minimum friend requests per session
     'max_friend_requests': 3,         # maximum friend requests per session
     'min_time_between_requests': 60,  # seconds between requests
     'max_time_between_requests': 120, # seconds between requests
-    'friend_suggestions_probability': 0.8,  # 80% chance to visit friend suggestions
+    'friend_suggestions_probability': 0.7,  # default - overridden by session profile
 
     # Scrolling behavior
     'scroll_min_pixels': 300,
@@ -47,13 +86,13 @@ WARM_UP_CONFIG = {
     'click_offset_range': 5,  # pixels from center
 
     # Safety guards
-    'max_likes_per_session': 8,
+    'max_likes_per_session': 10,
     'max_friend_requests_per_session': 3,
     'min_time_between_actions': 30,  # seconds - minimum between significant actions
 
-    # Logout timing (random delay after warmup before logout)
-    'min_logout_delay_minutes': 3,   # minimum wait before logout
-    'max_logout_delay_minutes': 7,   # maximum wait before logout
+    # Logout timing (fallback - overridden by session profile)
+    'min_logout_delay_minutes': 1,
+    'max_logout_delay_minutes': 7,
     'perform_logout': True,          # whether to actually logout or just close browser
 }
 
