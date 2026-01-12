@@ -1,6 +1,7 @@
 """
 Warmup tasks for Facebook profile warming
 Using Playwright for better memory efficiency (512MB RAM compatible)
+WITH DETAILED LOGGING - shows exactly what posts were liked, who was friended, timing info
 """
 
 import logging
@@ -9,8 +10,9 @@ import random
 import os
 import base64
 import json
+import traceback
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 import redis
 import cloudinary
@@ -38,23 +40,24 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 try:
     redis_client = redis.from_url(REDIS_URL)
     redis_client.ping()
+    logger.info("Redis connected for status broadcasting")
 except Exception:
     redis_client = None
-
-# Callback functions for direct status updates (when Redis not available)
-_status_callbacks: Dict[str, Any] = {}
-
-
-def set_status_callback(email: str, callback):
-    """Set a callback function for status updates (used when Redis not available)"""
-    if callback is None:
-        _status_callbacks.pop(email, None)
-    else:
-        _status_callbacks[email] = callback
+    logger.warning("Redis not available - using log-only mode")
 
 
 def broadcast_status(email: str, status: str, message: str, **extra):
-    """Broadcast status update via Redis pub/sub or direct callback"""
+    """
+    Broadcast status update via Redis pub/sub.
+    Also logs to console for visibility.
+    """
+    timestamp = datetime.utcnow().strftime("%H:%M:%S")
+
+    # Always log to console with clear formatting
+    log_msg = f"[{timestamp}] [{email.split('@')[0]}] {status.upper()}: {message}"
+    print(f"📢 {log_msg}", flush=True)
+    logger.info(log_msg)
+
     data = {
         "type": "status",
         "profile": email,
@@ -64,22 +67,21 @@ def broadcast_status(email: str, status: str, message: str, **extra):
         **extra
     }
 
-    # Try Redis first
+    # Broadcast via Redis if available
     if redis_client:
         try:
             redis_client.publish("warmup_status", json.dumps(data))
-            logger.debug(f"Broadcast via Redis: {status} - {message}")
-            return
         except Exception as e:
             logger.error(f"Redis broadcast error: {e}")
 
-    # Fallback to direct callback if registered
-    if email in _status_callbacks and _status_callbacks[email]:
-        try:
-            _status_callbacks[email](data)
-            logger.debug(f"Broadcast via callback: {status} - {message}")
-        except Exception as e:
-            logger.error(f"Callback broadcast error: {e}")
+
+def set_status_callback(email: str, callback):
+    """
+    Legacy callback setter - no longer used.
+    Status updates now go through Redis pub/sub and console logs.
+    Kept for backwards compatibility.
+    """
+    pass  # No-op - we use Redis pub/sub now
 
 # Screenshots directory
 SCREENSHOTS_DIR = os.getenv("SCREENSHOTS_DIR", "/tmp/warmup_screenshots")
@@ -184,30 +186,58 @@ def ensure_on_feed(driver) -> bool:
 def warmup_profile_task(email: str, password: str) -> Dict[str, Any]:
     """
     Run warmup for a profile using Playwright (low memory)
-    - 10 minute timeout
-    - Auto cleanup on crash
+
+    TIMING BREAKDOWN (all random within ranges from config):
+    --------------------------------------------------------
+    1. Login: ~10-20 seconds
+    2. Main scrolling/liking: 5-10 minutes (from min/max_duration_minutes)
+    3. Friend suggestions: 1-5 minutes (depends on requests sent)
+    4. Pre-logout delay: 3-7 minutes (from min/max_logout_delay_minutes)
+    5. Logout: ~5-10 seconds
+    --------------------------------------------------------
+    TOTAL: approximately 10-25 minutes per profile
     """
     stats = {
         "status": "started",
         "email": email,
         "likes": 0,
+        "liked_posts": [],  # Detailed info about each liked post
         "friend_requests": 0,
+        "friends_requested": [],  # Detailed info about each friend requested
         "scroll_count": 0,
-        "duration_seconds": 0
+        "duration_seconds": 0,
+        "timing": {}  # Timing breakdown
     }
 
     start_time = time.time()
 
+    # Get timing config
+    min_duration = WARM_UP_CONFIG.get('min_duration_minutes', 5)
+    max_duration = WARM_UP_CONFIG.get('max_duration_minutes', 10)
+    min_logout_delay = WARM_UP_CONFIG.get('min_logout_delay_minutes', 3)
+    max_logout_delay = WARM_UP_CONFIG.get('max_logout_delay_minutes', 7)
+
+    print("\n" + "="*60, flush=True)
+    print(f"🚀 STARTING WARMUP FOR: {email}", flush=True)
+    print("="*60, flush=True)
+    print(f"📋 TIMING PLAN:", flush=True)
+    print(f"   • Scrolling/Liking phase: {min_duration}-{max_duration} minutes (random)", flush=True)
+    print(f"   • Friend suggestions: ~1-5 minutes", flush=True)
+    print(f"   • Pre-logout delay: {min_logout_delay}-{max_logout_delay} minutes (random)", flush=True)
+    print(f"   • TOTAL ESTIMATED: {min_duration + min_logout_delay}-{max_duration + max_logout_delay + 5} minutes", flush=True)
+    print("="*60 + "\n", flush=True)
+
     try:
-        logger.info(f"Starting warmup for {email}")
         broadcast_status(email, "starting", "Starting browser...")
 
         # headless=True for server (Render), saves memory
         with browser_session(headless=True) as driver:
             broadcast_status(email, "browser_ready", "Browser launched, navigating to Facebook...")
 
-            # Login with detailed tracking
+            # ==================== LOGIN PHASE ====================
+            login_start = time.time()
             login_result = login_to_facebook(driver, email, password)
+            stats["timing"]["login_seconds"] = round(time.time() - login_start, 1)
             stats["login_screenshots"] = login_result.get("screenshots", [])
             stats["login_url"] = login_result.get("current_url")
 
@@ -215,34 +245,31 @@ def warmup_profile_task(email: str, password: str) -> Dict[str, Any]:
                 stats["status"] = "login_failed"
                 stats["error"] = login_result.get("error", "Unknown login error")
                 broadcast_status(email, "login_failed", f"Login failed: {stats['error']}",
-                               error=stats["error"], screenshots=len(stats["login_screenshots"]))
-                logger.error(f"Login failed for {email}: {stats['error']}")
+                               error=stats["error"])
                 return stats
 
-            logger.info(f"Login successful for {email}")
+            print(f"✅ LOGIN SUCCESSFUL (took {stats['timing']['login_seconds']}s)", flush=True)
             stats["status"] = "logged_in"
             broadcast_status(email, "logged_in", "Login successful! Starting warmup activities...")
 
-            # Calculate session duration
-            min_duration = WARM_UP_CONFIG.get('min_duration_minutes', 5) * 60
-            max_duration = WARM_UP_CONFIG.get('max_duration_minutes', 10) * 60
-            session_duration = random.uniform(min_duration, max_duration)
+            # ==================== SCROLLING/LIKING PHASE ====================
+            session_duration = random.uniform(min_duration * 60, max_duration * 60)
             session_end = time.time() + session_duration
+            stats["timing"]["planned_scroll_duration_minutes"] = round(session_duration / 60, 1)
 
-            logger.info(f"Session duration: {session_duration/60:.1f} minutes")
-            broadcast_status(email, "warmup_started", f"Warmup duration: {session_duration/60:.1f} minutes",
-                           duration_minutes=round(session_duration/60, 1))
+            print(f"\n📜 SCROLLING PHASE: {stats['timing']['planned_scroll_duration_minutes']} minutes", flush=True)
+            broadcast_status(email, "warmup_started",
+                           f"Scrolling/Liking for {stats['timing']['planned_scroll_duration_minutes']:.1f} minutes",
+                           duration_minutes=stats["timing"]["planned_scroll_duration_minutes"])
 
-            # Track last status broadcast time
+            scroll_start = time.time()
             last_broadcast = time.time()
 
-            # Main warmup loop
             while time.time() < session_end:
                 try:
-                    # IMPORTANT: Ensure we stay on the main Facebook feed
                     ensure_on_feed(driver)
 
-                    # Random action
+                    # Random action with weights
                     action = random.choices(
                         ["scroll", "scroll", "scroll", "like", "pause"],
                         weights=[50, 25, 10, 10, 5]
@@ -254,22 +281,27 @@ def warmup_profile_task(email: str, password: str) -> Dict[str, Any]:
                         stats["scroll_count"] += 1
 
                     elif action == "like":
-                        if like_post(driver):
+                        post_info = like_post(driver, email)
+                        if post_info:
                             stats["likes"] += 1
-                            broadcast_status(email, "liked", f"Liked a post (total: {stats['likes']})",
-                                           likes=stats["likes"])
+                            stats["liked_posts"].append(post_info)
+                            broadcast_status(email, "liked",
+                                           f"Liked post by {post_info['author']} (total: {stats['likes']})",
+                                           likes=stats["likes"], post_author=post_info["author"])
 
                     elif action == "pause":
                         human_delay(2, 5)
 
-                    # Small delay between actions
                     human_delay(1, 3)
 
-                    # Broadcast progress every 30 seconds
+                    # Progress update every 30 seconds
                     if time.time() - last_broadcast > 30:
-                        remaining = session_end - time.time()
+                        remaining = max(0, session_end - time.time())
+                        elapsed = time.time() - scroll_start
+                        print(f"⏱️  Progress: {elapsed/60:.1f}min elapsed, {remaining/60:.1f}min remaining | "
+                              f"Scrolls: {stats['scroll_count']}, Likes: {stats['likes']}", flush=True)
                         broadcast_status(email, "in_progress",
-                                       f"Scrolling... ({stats['scroll_count']} scrolls, {stats['likes']} likes, {remaining/60:.1f} min left)",
+                                       f"{stats['scroll_count']} scrolls, {stats['likes']} likes, {remaining/60:.1f} min left",
                                        scrolls=stats["scroll_count"], likes=stats["likes"],
                                        remaining_minutes=round(remaining/60, 1))
                         last_broadcast = time.time()
@@ -278,54 +310,91 @@ def warmup_profile_task(email: str, password: str) -> Dict[str, Any]:
                     logger.warning(f"Action error: {e}")
                     continue
 
-            # Visit friend suggestions (80% chance)
+            stats["timing"]["actual_scroll_duration_minutes"] = round((time.time() - scroll_start) / 60, 1)
+            print(f"✅ SCROLLING COMPLETE: {stats['scroll_count']} scrolls, {stats['likes']} likes", flush=True)
+
+            # ==================== FRIEND SUGGESTIONS PHASE ====================
             if random.random() < WARM_UP_CONFIG.get('friend_suggestions_probability', 0.8):
                 try:
+                    print(f"\n👥 FRIEND SUGGESTIONS PHASE", flush=True)
                     broadcast_status(email, "friend_suggestions", "Visiting friend suggestions...")
-                    requests_sent = visit_friend_suggestions(driver)
-                    stats["friend_requests"] = requests_sent
-                    if requests_sent > 0:
-                        broadcast_status(email, "friends_added", f"Sent {requests_sent} friend request(s)",
-                                       friend_requests=requests_sent)
+
+                    friend_start = time.time()
+                    friends_list = visit_friend_suggestions(driver, email)
+                    stats["timing"]["friend_suggestions_minutes"] = round((time.time() - friend_start) / 60, 1)
+
+                    stats["friend_requests"] = len(friends_list)
+                    stats["friends_requested"] = friends_list
+
+                    if friends_list:
+                        friend_names = [f["name"] for f in friends_list]
+                        broadcast_status(email, "friends_added",
+                                       f"Sent {len(friends_list)} friend request(s): {', '.join(friend_names)}",
+                                       friend_requests=len(friends_list),
+                                       friend_names=friend_names)
                 except Exception as e:
                     logger.warning(f"Friend suggestions error: {e}")
+                    traceback.print_exc()
 
-            # Random delay before logout
-            logout_delay = random.uniform(
-                WARM_UP_CONFIG.get('min_logout_delay_minutes', 3) * 60,
-                WARM_UP_CONFIG.get('max_logout_delay_minutes', 7) * 60
-            )
-            logger.info(f"Waiting {logout_delay/60:.1f} min before logout")
-            broadcast_status(email, "pre_logout", f"Waiting {logout_delay/60:.1f} minutes before logout...",
-                           logout_delay_minutes=round(logout_delay/60, 1))
+            # ==================== PRE-LOGOUT DELAY PHASE ====================
+            logout_delay = random.uniform(min_logout_delay * 60, max_logout_delay * 60)
+            stats["timing"]["planned_logout_delay_minutes"] = round(logout_delay / 60, 1)
 
-            # Light scrolling during logout delay
+            print(f"\n⏳ PRE-LOGOUT DELAY: {stats['timing']['planned_logout_delay_minutes']:.1f} minutes", flush=True)
+            print(f"   (Light scrolling while waiting...)", flush=True)
+            broadcast_status(email, "pre_logout",
+                           f"Waiting {stats['timing']['planned_logout_delay_minutes']:.1f} minutes before logout...",
+                           logout_delay_minutes=stats["timing"]["planned_logout_delay_minutes"])
+
+            delay_start = time.time()
             delay_end = time.time() + logout_delay
             while time.time() < delay_end:
                 scroll_page(driver, random.randint(200, 400))
                 human_delay(10, 20)
 
-            # Logout
+            stats["timing"]["actual_logout_delay_minutes"] = round((time.time() - delay_start) / 60, 1)
+
+            # ==================== LOGOUT PHASE ====================
             if WARM_UP_CONFIG.get('perform_logout', True):
+                print(f"\n🚪 LOGGING OUT...", flush=True)
                 broadcast_status(email, "logging_out", "Logging out...")
                 logout_from_facebook(driver)
+                print(f"✅ LOGGED OUT", flush=True)
 
             stats["status"] = "completed"
-            broadcast_status(email, "completed", "Warmup completed successfully!",
-                           stats=stats)
 
     except Exception as e:
         logger.error(f"Warmup error for {email}: {e}")
+        traceback.print_exc()
         stats["status"] = "error"
         stats["error"] = str(e)
         broadcast_status(email, "error", f"Error: {str(e)}", error=str(e))
-
-        # Cleanup on error
         browser_pool.cleanup_all()
 
     finally:
-        stats["duration_seconds"] = time.time() - start_time
-        logger.info(f"Warmup completed for {email}: {stats}")
+        stats["duration_seconds"] = round(time.time() - start_time, 1)
+        stats["timing"]["total_minutes"] = round(stats["duration_seconds"] / 60, 1)
+
+        # Print final summary
+        print("\n" + "="*60, flush=True)
+        print(f"🏁 WARMUP COMPLETE FOR: {email}", flush=True)
+        print("="*60, flush=True)
+        print(f"📊 FINAL STATS:", flush=True)
+        print(f"   • Status: {stats['status'].upper()}", flush=True)
+        print(f"   • Total Duration: {stats['timing']['total_minutes']} minutes", flush=True)
+        print(f"   • Scrolls: {stats['scroll_count']}", flush=True)
+        print(f"   • Likes: {stats['likes']}", flush=True)
+        if stats["liked_posts"]:
+            print(f"   • Liked posts by: {', '.join([p['author'] for p in stats['liked_posts'][:5]])}", flush=True)
+        print(f"   • Friend Requests: {stats['friend_requests']}", flush=True)
+        if stats["friends_requested"]:
+            print(f"   • Friends requested: {', '.join([f['name'] for f in stats['friends_requested']])}", flush=True)
+        print("="*60 + "\n", flush=True)
+
+        broadcast_status(email, "completed" if stats["status"] == "completed" else stats["status"],
+                        f"Warmup {'completed' if stats['status'] == 'completed' else 'failed'} - "
+                        f"{stats['timing']['total_minutes']} min, {stats['likes']} likes, {stats['friend_requests']} friends",
+                        stats=stats)
 
     return stats
 
@@ -444,33 +513,66 @@ def login_to_facebook(driver, email: str, password: str) -> Dict[str, Any]:
         return result
 
 
-def like_post(driver) -> bool:
-    """Try to like a visible post using Playwright"""
+def like_post(driver, email: str) -> Optional[Dict[str, str]]:
+    """
+    Try to like a visible post using Playwright.
+    Returns dict with post details if successful, None if failed.
+    """
     try:
         # Find like buttons using selector from config/selectors.py
         like_buttons = driver.find_elements("xpath", LIKE_SELECTORS["like_button_xpath"])
-
         visible_buttons = [btn for btn in like_buttons if btn.is_displayed()]
 
-        if visible_buttons:
-            button = random.choice(visible_buttons[:5])
-            button.click()
-            logger.info("Liked a post")
-            human_delay(2, 5)
-            return True
+        if not visible_buttons:
+            return None
 
-        return False
+        button = random.choice(visible_buttons[:5])
+
+        # Try to get post author/content before clicking
+        post_info = {"author": "Unknown", "content_preview": ""}
+        try:
+            # Navigate up to find the post container
+            post_container = driver.page.locator('div[role="article"]').filter(has=driver.page.locator(LIKE_SELECTORS["like_button_xpath"])).first
+
+            # Try to get author name (usually in a link with role="link")
+            author_elem = post_container.locator('a[role="link"] strong, h4 a, span[dir="auto"] a').first
+            if author_elem.count() > 0:
+                post_info["author"] = author_elem.text_content()[:50] or "Unknown"
+
+            # Try to get content preview
+            content_elem = post_container.locator('div[data-ad-preview="message"], div[dir="auto"]').first
+            if content_elem.count() > 0:
+                content = content_elem.text_content() or ""
+                post_info["content_preview"] = content[:100] + "..." if len(content) > 100 else content
+        except Exception:
+            pass  # Post info extraction is best-effort
+
+        # Click the like button
+        button.click()
+        human_delay(2, 5)
+
+        # Log detailed info
+        print(f"❤️  LIKED POST by '{post_info['author']}'", flush=True)
+        if post_info["content_preview"]:
+            print(f"    Preview: {post_info['content_preview']}", flush=True)
+        logger.info(f"Liked post by {post_info['author']}: {post_info['content_preview'][:50]}")
+
+        return post_info
 
     except Exception as e:
         logger.debug(f"Like error: {e}")
-        return False
+        return None
 
 
-def visit_friend_suggestions(driver) -> int:
-    """Visit friend suggestions and send requests using Playwright"""
-    requests_sent = 0
+def visit_friend_suggestions(driver, email: str) -> List[Dict[str, str]]:
+    """
+    Visit friend suggestions and send requests using Playwright.
+    Returns list of dicts with friend names who were requested.
+    """
+    friends_requested = []
 
     try:
+        print(f"👥 Navigating to friend suggestions page...", flush=True)
         driver.get("https://www.facebook.com/friends/suggestions")
         human_delay(3, 5)
 
@@ -480,8 +582,9 @@ def visit_friend_suggestions(driver) -> int:
 
         # Find Add Friend buttons using selector from config/selectors.py
         add_buttons = driver.find_elements("xpath", FRIEND_SELECTORS["add_friend_xpath"])
-
         visible_buttons = [btn for btn in add_buttons if btn.is_displayed()]
+
+        print(f"👥 Found {len(visible_buttons)} friend suggestions", flush=True)
 
         # Send 1-3 requests
         target = random.randint(
@@ -492,21 +595,47 @@ def visit_friend_suggestions(driver) -> int:
         for i, button in enumerate(visible_buttons[:target]):
             if random.random() < 0.6:  # 60% chance to actually send
                 try:
+                    # Try to get the person's name before clicking
+                    friend_name = "Unknown"
+                    try:
+                        # The name is usually in a nearby span or link
+                        # Look for the card container and find the name
+                        card = driver.page.locator('div[role="listitem"], div[data-visualcompletion="ignore-dynamic"]').nth(i)
+                        name_elem = card.locator('a[role="link"] span, span[dir="auto"]').first
+                        if name_elem.count() > 0:
+                            friend_name = name_elem.text_content()[:50] or "Unknown"
+                    except Exception:
+                        pass
+
                     button.click()
-                    requests_sent += 1
-                    logger.info(f"Sent friend request #{requests_sent}")
-                    human_delay(60, 120)  # Wait between requests
-                except Exception:
-                    pass
+                    friends_requested.append({"name": friend_name, "timestamp": datetime.utcnow().isoformat()})
+
+                    print(f"➕ FRIEND REQUEST SENT to: {friend_name}", flush=True)
+                    logger.info(f"Friend request sent to: {friend_name}")
+
+                    broadcast_status(email, "friend_request_sent",
+                                   f"Sent friend request to {friend_name}",
+                                   friend_name=friend_name,
+                                   total_requests=len(friends_requested))
+
+                    # Wait between requests (1-2 minutes)
+                    wait_time = random.randint(60, 120)
+                    print(f"    Waiting {wait_time}s before next action...", flush=True)
+                    human_delay(wait_time - 10, wait_time + 10)
+
+                except Exception as e:
+                    logger.debug(f"Failed to send friend request: {e}")
 
         # Return to feed
+        print(f"👥 Returning to feed. Total friend requests sent: {len(friends_requested)}", flush=True)
         driver.get("https://www.facebook.com")
         human_delay(2, 4)
 
     except Exception as e:
         logger.error(f"Friend suggestions error: {e}")
+        traceback.print_exc()
 
-    return requests_sent
+    return friends_requested
 
 
 def logout_from_facebook(driver) -> bool:
