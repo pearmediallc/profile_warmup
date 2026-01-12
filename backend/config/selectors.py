@@ -55,18 +55,21 @@ HOME_SELECTORS = {
 # LIKE BUTTON SELECTORS
 # =============================================================================
 LIKE_SELECTORS = {
-    # Like button (not yet liked)
-    # HTML: <div aria-label="Like" role="button">
-    "like_button": 'div[aria-label="Like"][role="button"]',
+    # Like button - using data attribute (most reliable)
+    # HTML: <div data-ad-rendering-role="like_button">
+    "like_button": 'div[data-ad-rendering-role="like_button"]',
 
-    # Alternative: Find by text
+    # Alternative: Find parent div containing Like span
+    "like_button_parent": 'div:has(span:has-text("Like")):not(:has(span:has-text("Liked")))',
+
+    # Find by span text directly
     "like_button_text": 'span:has-text("Like")',
 
-    # XPath version (more reliable for complex structures)
-    "like_button_xpath": '//div[@aria-label="Like"][@role="button"]',
+    # XPath version - find clickable div with Like text
+    "like_button_xpath": '//span[text()="Like"]/ancestor::div[contains(@class, "x9f619")]',
 
     # Already liked button (to avoid re-clicking)
-    "liked_button": 'div[aria-label="Remove Like"][role="button"]',
+    "liked_button": 'span:has-text("Liked")',
 }
 
 # =============================================================================
