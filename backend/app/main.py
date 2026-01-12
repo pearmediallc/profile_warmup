@@ -232,7 +232,7 @@ async def debug_browser():
     import subprocess
 
     print("[DEBUG] /debug/browser called", flush=True)
-    browser_path = os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '/app/.playwright-browsers')
+    browser_path = os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '/ms-playwright')
     result = {
         "code_version": "2024-01-12-v9-explicit-chrome-path",
         "python_version": sys.version,
@@ -251,7 +251,7 @@ async def debug_browser():
         print(f"[DEBUG] Playwright version: {result['playwright_version']}", flush=True)
 
         # Try to find chromium in the configured location
-        search_paths = [browser_path, '/app/.playwright-browsers', '/root/.cache/ms-playwright']
+        search_paths = [browser_path, '/ms-playwright', '/root/.cache/ms-playwright']
         for search_path in search_paths:
             if os.path.exists(search_path):
                 find_result = subprocess.run(
@@ -280,7 +280,7 @@ async def test_browser_launch():
     import subprocess
     from playwright.async_api import async_playwright
 
-    browser_path = os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '/app/.playwright-browsers')
+    browser_path = os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '/ms-playwright')
     result = {
         "code_version": "2024-01-12-v9-explicit-chrome-path",
         "playwright_browsers_path": browser_path,
@@ -312,7 +312,7 @@ async def test_browser_launch():
         result["steps"].append(f"   PLAYWRIGHT_BROWSERS_PATH = {browser_path}")
         try:
             # Check configured path first, then fallbacks
-            search_paths = [browser_path, '/app/.playwright-browsers', '/root/.cache/ms-playwright']
+            search_paths = [browser_path, '/ms-playwright', '/root/.cache/ms-playwright']
             found = False
             for search_path in search_paths:
                 if not os.path.exists(search_path):
@@ -428,7 +428,7 @@ async def health_check():
         "active_browsers": len(browser_pool.active_browsers),
         "active_tasks": len(active_tasks),
         "code_version": "2024-01-12-v9-explicit-chrome-path",
-        "playwright_browsers_path": os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '/app/.playwright-browsers')
+        "playwright_browsers_path": os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '/ms-playwright')
     }
 
     if redis_client:
@@ -526,8 +526,8 @@ async def run_warmup_direct(email: str, password: str):
         set_status_callback(email, lambda data: asyncio.create_task(broadcast_message(data)))
 
         # Run the task in a thread pool to not block the event loop
-        print(f"[WARMUP-BG] Getting event loop...", flush=True)
-        loop = asyncio.get_event_loop()
+        print(f"[WARMUP-BG] Getting running loop...", flush=True)
+        loop = asyncio.get_running_loop()
 
         print(f"[WARMUP-BG] Calling warmup_profile_task in executor...", flush=True)
         result = await loop.run_in_executor(

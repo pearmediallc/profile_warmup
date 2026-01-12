@@ -2,11 +2,12 @@
 FROM python:3.11-slim
 
 # Cache buster - change this to force rebuild
-ARG CACHEBUST=10
+ARG CACHEBUST=11
 
-# Set Playwright browser path to a fixed location INSIDE /app
-# This ensures browsers are found regardless of user/home directory
-ENV PLAYWRIGHT_BROWSERS_PATH=/app/.playwright-browsers
+# Set Playwright browser path EARLY - must be set before playwright install
+# Using default path that Playwright expects
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0
 
 # Install system dependencies for Chromium
 RUN apt-get update && apt-get install -y \
@@ -44,19 +45,21 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code BEFORE browser install
-# This way browser install happens AFTER and can't be overwritten
-COPY . .
-
-# Install Playwright browsers LAST (after COPY . .)
-# This ensures browsers are always installed fresh and not overwritten
-RUN echo "Installing Playwright Chromium to $PLAYWRIGHT_BROWSERS_PATH..." && \
+# Install Playwright browsers IMMEDIATELY after pip install
+# BEFORE copying app code so it can't be overwritten
+RUN mkdir -p $PLAYWRIGHT_BROWSERS_PATH && \
+    echo "Installing Playwright Chromium to $PLAYWRIGHT_BROWSERS_PATH..." && \
     playwright install chromium && \
     playwright install-deps chromium && \
-    echo "Browser installation complete!"
+    echo "Browser installation complete!" && \
+    echo "=== VERIFYING BROWSER INSTALLATION ===" && \
+    find $PLAYWRIGHT_BROWSERS_PATH -name "chrome" -type f 2>/dev/null | head -5
 
-# VERIFY the browser exists - FAIL BUILD if not
-RUN echo "=== VERIFYING BROWSER INSTALLATION ===" && \
+# Now copy application code AFTER browser is installed
+COPY . .
+
+# Final verification - FAIL BUILD if browser not found
+RUN echo "=== FINAL BROWSER VERIFICATION ===" && \
     echo "Browser path: $PLAYWRIGHT_BROWSERS_PATH" && \
     ls -la $PLAYWRIGHT_BROWSERS_PATH/ && \
     CHROME_PATH=$(find $PLAYWRIGHT_BROWSERS_PATH -name "chrome" -type f 2>/dev/null | head -1) && \

@@ -1,13 +1,17 @@
 # Combined Dockerfile for Profile Warmup (Frontend + Backend)
+# For local development with docker-compose
 FROM python:3.11-slim
 
-# Install Chrome, Node.js and dependencies
+# Set Playwright browser path EARLY
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0
+
+# Install system dependencies for Chromium + Node.js
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
-    unzip \
     curl \
-    # Chrome dependencies
+    # Chromium dependencies
     fonts-liberation \
     libasound2 \
     libatk-bridge2.0-0 \
@@ -26,41 +30,24 @@ RUN apt-get update && apt-get install -y \
     libxfixes3 \
     libxkbcommon0 \
     libxrandr2 \
+    libpango-1.0-0 \
+    libcairo2 \
+    libx11-6 \
+    libx11-xcb1 \
+    libxcb1 \
+    libxext6 \
+    libxshmfence1 \
     xdg-utils \
     # Node.js for frontend build
     nodejs \
     npm \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Chrome (using modern GPG key method)
-RUN mkdir -p /etc/apt/keyrings \
-    && wget -q -O /tmp/google-chrome.pub https://dl-ssl.google.com/linux/linux_signing_key.pub \
-    && gpg --dearmor -o /etc/apt/keyrings/google-chrome.gpg /tmp/google-chrome.pub \
-    && echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
-    && apt-get update \
-    && apt-get install -y google-chrome-stable \
-    && rm -rf /var/lib/apt/lists/* /tmp/google-chrome.pub
-
-# Install matching ChromeDriver
-RUN CHROME_VERSION=$(google-chrome-stable --version | grep -oP '\d+\.\d+\.\d+' | head -1) \
-    && echo "Chrome version: $CHROME_VERSION" \
-    && CHROMEDRIVER_URL="https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}.0/linux64/chromedriver-linux64.zip" \
-    && echo "Downloading ChromeDriver from: $CHROMEDRIVER_URL" \
-    && wget -q -O /tmp/chromedriver.zip "$CHROMEDRIVER_URL" || \
-       (MAJOR_VERSION=$(echo $CHROME_VERSION | cut -d. -f1) && \
-        wget -q -O /tmp/chromedriver.zip "https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/${CHROME_VERSION}.0/linux64/chromedriver-linux64.zip") \
-    && unzip -q /tmp/chromedriver.zip -d /tmp/ \
-    && mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver \
-    && chmod +x /usr/local/bin/chromedriver \
-    && rm -rf /tmp/chromedriver* \
-    && echo "ChromeDriver installed at: $(which chromedriver)"
-
 # Build Frontend first
 WORKDIR /frontend
 COPY frontend/package*.json ./
 RUN npm install
 COPY frontend/ ./
-# Set API URL to empty for same-origin requests
 ENV VITE_API_URL=""
 RUN npm run build
 
@@ -69,22 +56,28 @@ WORKDIR /app
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Install Playwright browsers BEFORE copying code
+RUN mkdir -p $PLAYWRIGHT_BROWSERS_PATH && \
+    playwright install chromium && \
+    playwright install-deps chromium
+
 # Copy backend code
 COPY backend/ .
 
 # Copy built frontend to static folder
 RUN mkdir -p /app/static && cp -r /frontend/dist/* /app/static/
 
+# Verify browser installation
+RUN echo "=== VERIFYING BROWSER ===" && \
+    find $PLAYWRIGHT_BROWSERS_PATH -name "chrome" -type f | head -1
+
 # Environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
-# Expose port
 EXPOSE 8000
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Run the application
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -29,6 +29,8 @@ services:
         value: https://profile-warmup-frontend.onrender.com
       - key: PYTHONUNBUFFERED
         value: "1"
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: "/ms-playwright"
       # Cloudinary - Add your credentials
       - key: CLOUDINARY_CLOUD_NAME
         sync: false

@@ -45,8 +45,8 @@ def find_chrome_executable() -> Optional[str]:
     """
     # Search paths in order of preference
     search_paths = [
-        os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '/app/.playwright-browsers'),
-        '/app/.playwright-browsers',
+        os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '/ms-playwright'),
+        '/ms-playwright',
         '/root/.cache/ms-playwright',
         '/home/.cache/ms-playwright',
     ]
@@ -174,8 +174,8 @@ class PlaywrightBrowser:
         # Check for chromium in correct location
         print("[BROWSER] Searching for Chromium...", flush=True)
         # Check PLAYWRIGHT_BROWSERS_PATH env var first, then default locations
-        browser_path = os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '/app/.playwright-browsers')
-        search_paths = [browser_path, '/app/.playwright-browsers', '/root/.cache/ms-playwright']
+        browser_path = os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '/ms-playwright')
+        search_paths = [browser_path, '/ms-playwright', '/root/.cache/ms-playwright']
 
         for search_path in search_paths:
             try:

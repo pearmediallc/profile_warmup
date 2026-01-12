@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  # Redis for Celery broker
+  # Redis for status broadcasting (pub/sub)
   redis:
     image: redis:7-alpine
     ports:
@@ -26,11 +26,10 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:5173}
       - PYTHONUNBUFFERED=1
+      - PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
     depends_on:
       redis:
         condition: service_healthy
-    volumes:
-      - ./config.py:/app/config.py:ro
     deploy:
       resources:
         limits:
@@ -43,29 +42,8 @@ services:
       retries: 3
     restart: always
 
-  # Celery Worker for warmup jobs
-  celery-worker:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    command: celery -A app.celery_app worker --loglevel=info --concurrency=2
-    environment:
-      - REDIS_URL=redis://redis:6379/0
-      - PYTHONUNBUFFERED=1
-    depends_on:
-      redis:
-        condition: service_healthy
-    volumes:
-      - ./config.py:/app/config.py:ro
-    deploy:
-      resources:
-        limits:
-          memory: 2G    # More memory for Chrome browsers
-          cpus: '1.0'
-        reservations:
-          memory: 1G
-    shm_size: '1gb'     # Shared memory for Chrome
-    restart: always
+  # NOTE: Celery worker removed - code uses FastAPI BackgroundTasks instead
+  # If you need Celery in the future, create backend/app/celery_app.py first
 
   # Frontend (React + Vite)
   frontend:
