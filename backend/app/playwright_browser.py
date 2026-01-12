@@ -87,9 +87,8 @@ def get_browser_args():
         '--disable-breakpad',
     ]
 
-    # Add single-process only for Docker (can cause issues on Mac)
-    if IS_DOCKER:
-        args.append('--single-process')
+    # NOTE: Removed --single-process flag - causes instability and crashes
+    # Even in Docker, it's better to let Chromium manage its processes
 
     return args
 
@@ -110,6 +109,15 @@ class PlaywrightBrowser:
     def start(self, max_retries: int = 3):
         """Start the browser with retry logic"""
         cleanup_browser_processes()
+
+        # Debug: Log browser path info
+        try:
+            import subprocess
+            result = subprocess.run(['playwright', 'install', '--dry-run', 'chromium'],
+                                   capture_output=True, text=True, timeout=10)
+            logger.info(f"Playwright browser check: {result.stdout[:200] if result.stdout else 'OK'}")
+        except Exception as e:
+            logger.warning(f"Could not check Playwright browsers: {e}")
 
         last_error = None
 

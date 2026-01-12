@@ -1,4 +1,4 @@
-# Use official Playwright image - Chromium is PRE-INSTALLED
+# Use official Playwright image - has browser dependencies pre-installed
 FROM mcr.microsoft.com/playwright/python:v1.40.0-jammy
 
 # Set working directory
@@ -7,8 +7,17 @@ WORKDIR /app
 # Copy requirements first (for caching)
 COPY requirements.txt .
 
-# Install Python dependencies (playwright already installed in base image)
+# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
+
+# EXPLICITLY install Playwright Chromium browser
+# The base image has dependencies, but browser needs explicit install
+RUN playwright install chromium
+
+# Debug: Show where Chromium is installed
+RUN echo "=== Playwright Browser Info ===" && \
+    playwright --version && \
+    find /ms-playwright -name "chrome" -o -name "chromium" 2>/dev/null | head -5 || true
 
 # Copy application code
 COPY . .
