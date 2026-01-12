@@ -233,7 +233,7 @@ async def debug_browser():
 
     print("[DEBUG] /debug/browser called", flush=True)
     result = {
-        "code_version": "2024-01-12-v3-comprehensive-logging",
+        "code_version": "2024-01-12-v4-test-browser",
         "python_version": sys.version,
         "cwd": os.getcwd(),
         "playwright_version": None,
@@ -264,6 +264,130 @@ async def debug_browser():
     return result
 
 
+@app.get("/debug/test-browser")
+async def test_browser_launch():
+    """
+    Actually try to launch browser and return detailed diagnostic info.
+    This runs synchronously and returns full error details in the response.
+    """
+    import subprocess
+    from playwright.sync_api import sync_playwright
+
+    result = {
+        "code_version": "2024-01-12-v4-test-browser",
+        "steps": [],
+        "success": False,
+        "error": None,
+        "error_type": None,
+        "browser_launched": False,
+        "page_created": False,
+        "navigation_test": None
+    }
+
+    playwright = None
+    browser = None
+    page = None
+
+    try:
+        # Step 1: Check Playwright version
+        result["steps"].append("1. Checking Playwright version...")
+        try:
+            pw_result = subprocess.run(['playwright', '--version'], capture_output=True, text=True, timeout=10)
+            result["playwright_version"] = pw_result.stdout.strip() if pw_result.stdout else pw_result.stderr.strip()
+            result["steps"].append(f"   ✓ Playwright: {result['playwright_version']}")
+        except Exception as e:
+            result["steps"].append(f"   ✗ Version check failed: {e}")
+
+        # Step 2: Find Chromium
+        result["steps"].append("2. Looking for Chromium executable...")
+        try:
+            find_result = subprocess.run(
+                ['find', '/ms-playwright', '-name', 'chrome', '-type', 'f'],
+                capture_output=True, text=True, timeout=30
+            )
+            if find_result.stdout:
+                paths = find_result.stdout.strip().split('\n')[:3]
+                result["chromium_paths"] = paths
+                result["steps"].append(f"   ✓ Found: {paths[0] if paths else 'none'}")
+            else:
+                result["steps"].append("   ✗ No chrome executable found in /ms-playwright")
+                # Try alternative location
+                find_result2 = subprocess.run(
+                    ['find', '/', '-name', 'chrome', '-type', 'f', '-path', '*playwright*'],
+                    capture_output=True, text=True, timeout=60
+                )
+                if find_result2.stdout:
+                    result["chromium_paths_alt"] = find_result2.stdout.strip().split('\n')[:3]
+                    result["steps"].append(f"   Found in alt location: {result['chromium_paths_alt']}")
+        except Exception as e:
+            result["steps"].append(f"   ✗ Search failed: {e}")
+
+        # Step 3: Start Playwright
+        result["steps"].append("3. Starting Playwright sync_playwright()...")
+        playwright = sync_playwright().start()
+        result["steps"].append("   ✓ Playwright started")
+
+        # Step 4: Launch browser
+        result["steps"].append("4. Launching Chromium browser...")
+        browser_args = [
+            '--no-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+            '--disable-extensions',
+        ]
+        browser = playwright.chromium.launch(
+            headless=True,
+            args=browser_args
+        )
+        result["browser_launched"] = True
+        result["steps"].append("   ✓ Browser launched!")
+
+        # Step 5: Create page
+        result["steps"].append("5. Creating new page...")
+        page = browser.new_page(
+            viewport={'width': 1280, 'height': 720}
+        )
+        result["page_created"] = True
+        result["steps"].append("   ✓ Page created!")
+
+        # Step 6: Navigate to test page
+        result["steps"].append("6. Testing navigation to example.com...")
+        page.goto("https://example.com", timeout=30000)
+        result["navigation_test"] = {
+            "url": page.url,
+            "title": page.title()
+        }
+        result["steps"].append(f"   ✓ Navigated! Title: {page.title()}")
+
+        result["success"] = True
+        result["steps"].append("=== ALL TESTS PASSED ===")
+
+    except Exception as e:
+        result["error"] = str(e)
+        result["error_type"] = type(e).__name__
+        result["steps"].append(f"   ✗ ERROR: {type(e).__name__}: {e}")
+        import traceback
+        result["traceback"] = traceback.format_exc()
+
+    finally:
+        # Cleanup
+        result["steps"].append("7. Cleaning up...")
+        try:
+            if page:
+                page.close()
+                result["steps"].append("   ✓ Page closed")
+            if browser:
+                browser.close()
+                result["steps"].append("   ✓ Browser closed")
+            if playwright:
+                playwright.stop()
+                result["steps"].append("   ✓ Playwright stopped")
+        except Exception as e:
+            result["steps"].append(f"   Cleanup error: {e}")
+
+    return result
+
+
 @app.get("/")
 async def root():
     """Root endpoint - serves frontend if available, otherwise API info"""
@@ -287,7 +411,7 @@ async def health_check():
         "cloudinary": CLOUDINARY_CONFIGURED,
         "active_browsers": len(browser_pool.active_browsers),
         "active_tasks": len(active_tasks),
-        "code_version": "2024-01-12-v3"
+        "code_version": "2024-01-12-v4-test-browser"
     }
 
     if redis_client:
