@@ -1,12 +1,14 @@
-# Use plain Python image - more reliable than Playwright image
+# Use plain Python image
 FROM python:3.11-slim
+
+# Cache buster - change this to force rebuild
+ARG CACHEBUST=8
 
 # Install system dependencies for Chromium
 RUN apt-get update && apt-get install -y \
     curl \
     wget \
     gnupg \
-    # Chromium dependencies
     libnss3 \
     libnspr4 \
     libatk1.0-0 \
@@ -24,6 +26,12 @@ RUN apt-get update && apt-get install -y \
     libasound2 \
     libpango-1.0-0 \
     libcairo2 \
+    libx11-6 \
+    libx11-xcb1 \
+    libxcb1 \
+    libxext6 \
+    libxshmfence1 \
+    fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -32,15 +40,23 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright browsers (this is the KEY step)
-RUN playwright install chromium
-RUN playwright install-deps chromium
+# Install Playwright browsers - THIS IS CRITICAL
+# Must happen AFTER pip install playwright
+RUN echo "Installing Playwright Chromium browser..." && \
+    playwright install chromium && \
+    playwright install-deps chromium && \
+    echo "Browser installation complete!"
 
-# Verify installation - show where browser is
-RUN echo "=== Checking Playwright Installation ===" && \
-    playwright --version && \
-    echo "Browser location:" && \
-    find /root -name "chrome" -type f 2>/dev/null | head -5
+# VERIFY the browser exists - FAIL BUILD if not
+RUN echo "=== VERIFYING BROWSER INSTALLATION ===" && \
+    ls -la /root/.cache/ms-playwright/ && \
+    CHROME_PATH=$(find /root/.cache/ms-playwright -name "chrome" -type f | head -1) && \
+    if [ -z "$CHROME_PATH" ]; then \
+        echo "ERROR: Chrome executable NOT FOUND!" && \
+        exit 1; \
+    else \
+        echo "SUCCESS: Found Chrome at: $CHROME_PATH"; \
+    fi
 
 # Copy application code
 COPY . .
