@@ -135,15 +135,16 @@ class PlaywrightBrowser:
         except Exception as e:
             print(f"[BROWSER] ✗ Could not get Playwright version: {e}", flush=True)
 
-        # Check for chromium
+        # Check for chromium in correct location
         print("[BROWSER] Searching for Chromium...", flush=True)
         try:
-            find_result = subprocess.run(['find', '/ms-playwright', '-name', 'chrome', '-type', 'f'],
+            # Check /root/.cache/ms-playwright (where 'playwright install' puts it)
+            find_result = subprocess.run(['find', '/root/.cache/ms-playwright', '-name', 'chrome', '-type', 'f'],
                                         capture_output=True, text=True, timeout=30)
             if find_result.stdout:
                 print(f"[BROWSER] ✓ Found Chromium at: {find_result.stdout.strip()[:200]}", flush=True)
             else:
-                print("[BROWSER] ✗ Chromium NOT found in /ms-playwright", flush=True)
+                print("[BROWSER] ✗ Chromium NOT found in /root/.cache/ms-playwright", flush=True)
         except Exception as e:
             print(f"[BROWSER] Could not search for Chromium: {e}", flush=True)
 

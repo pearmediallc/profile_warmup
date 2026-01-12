@@ -233,7 +233,7 @@ async def debug_browser():
 
     print("[DEBUG] /debug/browser called", flush=True)
     result = {
-        "code_version": "2024-01-12-v6-fresh-install",
+        "code_version": "2024-01-12-v7-all-fixes",
         "python_version": sys.version,
         "cwd": os.getcwd(),
         "playwright_version": None,
@@ -248,9 +248,9 @@ async def debug_browser():
         result["playwright_version"] = pw_result.stdout.strip() if pw_result.stdout else pw_result.stderr.strip()
         print(f"[DEBUG] Playwright version: {result['playwright_version']}", flush=True)
 
-        # Try to find chromium
+        # Try to find chromium in correct location
         find_result = subprocess.run(
-            ['find', '/ms-playwright', '-name', 'chrome', '-type', 'f'],
+            ['find', '/root/.cache/ms-playwright', '-name', 'chrome', '-type', 'f'],
             capture_output=True, text=True, timeout=30
         )
         if find_result.stdout:
@@ -274,7 +274,7 @@ async def test_browser_launch():
     from playwright.async_api import async_playwright
 
     result = {
-        "code_version": "2024-01-12-v6-fresh-install",
+        "code_version": "2024-01-12-v7-all-fixes",
         "steps": [],
         "success": False,
         "error": None,
@@ -415,7 +415,7 @@ async def health_check():
         "cloudinary": CLOUDINARY_CONFIGURED,
         "active_browsers": len(browser_pool.active_browsers),
         "active_tasks": len(active_tasks),
-        "code_version": "2024-01-12-v6-fresh-install"
+        "code_version": "2024-01-12-v7-all-fixes"
     }
 
     if redis_client:
@@ -523,13 +523,25 @@ async def run_warmup_direct(email: str, password: str):
         )
         print(f"[WARMUP-BG] warmup_profile_task completed. Result: {result}", flush=True)
 
-        await broadcast_message({
-            "type": "complete",
-            "profile": email,
-            "status": "completed",
-            "message": "🎉 Warmup complete!",
-            "stats": result
-        })
+        # Check if warmup actually succeeded or had an error
+        if result.get("status") == "error" or result.get("status") == "login_failed":
+            error_msg = result.get("error", "Unknown error")
+            print(f"[WARMUP-BG] ✗ Warmup failed with status: {result.get('status')}", flush=True)
+            await broadcast_message({
+                "type": "error",
+                "profile": email,
+                "status": result.get("status"),
+                "message": f"❌ Warmup failed: {error_msg}",
+                "stats": result
+            })
+        else:
+            await broadcast_message({
+                "type": "complete",
+                "profile": email,
+                "status": "completed",
+                "message": "🎉 Warmup complete!",
+                "stats": result
+            })
 
     except Exception as e:
         print(f"[WARMUP-BG] ✗ ERROR in background task: {e}", flush=True)

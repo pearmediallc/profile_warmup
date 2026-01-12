@@ -239,6 +239,9 @@ def warmup_profile_task(email: str, password: str) -> Dict[str, Any]:
             # Main warmup loop
             while time.time() < session_end:
                 try:
+                    # IMPORTANT: Ensure we stay on the main Facebook feed
+                    ensure_on_feed(driver)
+
                     # Random action
                     action = random.choices(
                         ["scroll", "scroll", "scroll", "like", "pause"],
