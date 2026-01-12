@@ -39,10 +39,10 @@ HOME_SELECTORS = {
     # "See more" link in sidebar shortcuts
     # HTML: <div class="x6s0dn4..."><span>See more</span></div>
     # The span is nested deep inside divs
-    "see_more": 'span:text("See more")',
+    "see_more": 'span:has-text("See more")',
 
     # Alternative: More specific selector for sidebar "See more"
-    "see_more_sidebar": 'div.x6s0dn4 span:text("See more")',
+    "see_more_sidebar": 'div.x6s0dn4 span:has-text("See more")',
 
     # Feed container
     "feed": 'div[role="feed"]',
@@ -60,7 +60,7 @@ LIKE_SELECTORS = {
     "like_button": 'div[aria-label="Like"][role="button"]',
 
     # Alternative: Find by text
-    "like_button_text": 'span:text("Like")',
+    "like_button_text": 'span:has-text("Like")',
 
     # XPath version (more reliable for complex structures)
     "like_button_xpath": '//div[@aria-label="Like"][@role="button"]',
@@ -78,13 +78,13 @@ FRIEND_SELECTORS = {
     "add_friend_button": 'div[aria-label="Add friend"][role="button"]',
 
     # Alternative: Find by text
-    "add_friend_text": 'span:text("Add friend")',
+    "add_friend_text": 'span:has-text("Add friend")',
 
     # XPath version
     "add_friend_xpath": '//span[text()="Add friend"]/ancestor::div[@role="button"]',
 
     # Confirm friend request (if popup appears)
-    "confirm_button": 'span:text("Confirm")',
+    "confirm_button": 'span:has-text("Confirm")',
 }
 
 # =============================================================================
@@ -100,10 +100,10 @@ LOGOUT_SELECTORS = {
 
     # Logout button in dropdown
     # HTML: <span>Log Out</span> or <span>Log out</span>
-    "logout_button": 'span:text("Log Out"), span:text("Log out")',
+    "logout_button": 'span:has-text("Log Out"), span:has-text("Log out")',
 
     # Settings & Privacy (if needed to navigate)
-    "settings_privacy": 'span:text("Settings & privacy")',
+    "settings_privacy": 'span:has-text("Settings & privacy")',
 }
 
 # =============================================================================
@@ -111,16 +111,16 @@ LOGOUT_SELECTORS = {
 # =============================================================================
 ERROR_SELECTORS = {
     # Wrong password error
-    "wrong_password": 'div:text("Wrong password")',
+    "wrong_password": 'div:has-text("Wrong password")',
 
     # Account disabled
-    "account_disabled": 'div:text("account has been disabled")',
+    "account_disabled": 'div:has-text("account has been disabled")',
 
     # Security checkpoint
-    "checkpoint": 'div:text("Security Check")',
+    "checkpoint": 'div:has-text("Security Check")',
 
     # Two-factor auth
-    "two_factor": 'div:text("Two-factor authentication")',
+    "two_factor": 'div:has-text("Two-factor authentication")',
 }
 
 # =============================================================================
